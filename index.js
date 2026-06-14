@@ -12,133 +12,218 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
 };
 
-// ─── Təkrar önləmə (fayl əsaslı) ────────────────────────────────
+// ─── İşlənmiş ID-lər (təkrar önləmə) ────────────────────────────
 const PROCESSED_FILE = "/tmp/processed_ids.json";
 
 function loadProcessed() {
   try {
     const data = JSON.parse(fs.readFileSync(PROCESSED_FILE, "utf8"));
     const now = Date.now();
-    // 10 dəqiqədən köhnə olanları sil
     const fresh = {};
     for (const [id, ts] of Object.entries(data)) {
       if (now - ts < 600000) fresh[id] = ts;
     }
     return fresh;
-  } catch {
-    return {};
-  }
-}
-
-function saveProcessed(data) {
-  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(data));
+  } catch { return {}; }
 }
 
 function isProcessed(id) {
   const data = loadProcessed();
   if (data[id]) return true;
   data[id] = Date.now();
-  saveProcessed(data);
+  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(data));
   return false;
 }
 
-// ─── Şərh filtri ─────────────────────────────────────────────────
-function shouldReply(text) {
-  if (!text) return false;
-  const t = text.toLowerCase().trim();
-  if (t.replace(/\s/g, "").length < 3) return false;
-  const emojiOnly = /^[\p{Emoji}\s!?.❤️👍🔥💯✅⭐🙏]+$/u.test(t);
-  if (emojiOnly) return false;
+// ─── İstifadəçi vəziyyətləri (menyu) ────────────────────────────
+const userStates = {};
 
-  const triggers = [
-    "salam", "hello", "hi", "hey",
-    "məlumat", "melumat", "bilgi", "info",
-    "qiymət", "qiymet", "nədir", "nedir",
-    "necə", "nece", "nə vaxt", "ne vaxt",
-    "sifariş", "siparis", "sifaris",
-    "sayt", "vebsayt", "website", "web",
-    "tətbiq", "tetbiq", "mobil", "app",
-    "erp", "crm", "sistem", "avtomatlaşdırma",
-    "seo", "nömrə", "nomre", "əlaqə", "elaqe",
-    "müddət", "muddet", "nə qədər", "ne qeder",
-    "ödəniş", "odenis", "kömək", "komek",
-    "maraqlanıram", "maraqlıdır",
-    "istəyirəm", "isteyirem",
-    "bəli", "beli", "yardım", "yardim",
-    "dəstək", "destek", "xidmət", "xidmet",
-    "hazırlayın", "hazırlayırsınız", "?",
-  ];
+// ─── Menyu məzmunu ───────────────────────────────────────────────
+const MENUS = {
+  main: `Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋
 
-  return triggers.some(kw => t.includes(kw));
+Müraciətiniz nə ilə bağlıdır? Zəhmət olmasa seçin:
+
+1️⃣ Xidmətlərimiz
+2️⃣ Haqqımızda
+3️⃣ Əlaqə`,
+
+  services: `Hansı xidmətlə maraqlanırsınız?
+
+1️⃣ Vebsayt
+2️⃣ Mobil Tətbiq
+3️⃣ ERP / Avtomatlaşdırma
+4️⃣ SEO Optimizasiyası
+5️⃣ Texniki Dəstək
+0️⃣ Ana menyuya qayıt`,
+
+  about: `01 Code Studio — Azərbaycanda bizneslərin rəqəmsallaşması üçün peşəkar proqram həlləri təqdim edən şirkətdir. 🚀
+
+Vebsayt, mobil tətbiq, ERP sistemi və AI həllərindən tutmuş SEO və texniki dəstəyə qədər — biznesinizin onlayn dünyada tam gücü ilə təmsil olunması üçün çalışırıq.
+
+Hər layihəyə fərdi yanaşır, müştərilərimizi layihə bitdikdən sonra da tək qoymuruq. 💼
+
+🌐 www.01cs.site | 📸 @01cs.az
+
+0️⃣ Ana menyuya qayıt`,
+
+  contact: `Bizimlə əlaqə saxlamaq üçün:
+
+📧 Email: info@01cs.site
+💬 WhatsApp: wa.me/994107172034
+📞 Telefon: +994 10 717 20 34
+
+İş saatları: 7/24 🕐
+
+0️⃣ Ana menyuya qayıt`,
+
+  website: `💻 Vebsayt Hazırlanması
+
+Biznesiniz üçün modern, sürətli və mobil uyğun vebsaytlar hazırlayırıq.
+
+📌 Xidmət növləri:
+• Vizit / Korporativ sayt
+• E-ticarət / Online mağaza
+• Restoran menyu portalı
+• İdarəetmə paneli (dashboard)
+
+💰 Təxmini qiymətlər:
+• Vizit / Korporativ sayt: 250-700 AZN
+• E-ticarət / Online mağaza: 700-1800 AZN
+
+⏱ Müddət: 5-10 iş günü (sadə), 3-6 həftə (böyük)
+✅ 100% responsiv (mobil uyğun)
+✅ Ödəniş sistemi inteqrasiyası
+✅ Layihə sonrası pulsuz texniki dəstək
+
+Daha dəqiq qiymət təklifi üçün:
+👉 https://01cs.site/teklif-al.html
+
+0️⃣ Xidmətlər menyusuna qayıt`,
+
+  mobile: `📱 Mobil Tətbiq Hazırlanması
+
+iOS və Android platformaları üçün funksional və istifadəçi yönümlü mobil tətbiqlər hazırlayırıq.
+
+📌 Xüsusiyyətlər:
+• iOS və Android üçün eyni vaxtda
+• Sürətli və müasir UI/UX dizayn
+• Bildiriş sistemi, ödəniş inteqrasiyası
+• Admin idarəetmə paneli
+
+💰 Təxmini qiymət: 1800 AZN-dən başlayaraq
+⏱ Müddət: Layihəyə görə 4-10 həftə
+
+Daha dəqiq qiymət təklifi üçün:
+👉 https://01cs.site/teklif-al.html
+
+0️⃣ Xidmətlər menyusuna qayıt`,
+
+  erp: `⚙️ ERP / CRM / Avtomatlaşdırma
+
+Müəssisə daxili prosesləri tam rəqəmsal idarə etmək üçün fərdi sistemlər hazırlayırıq.
+
+📌 Həll növləri:
+• Müştəri idarəetmə sistemi (CRM)
+• Anbar və satış idarəetməsi (ERP)
+• İş axını avtomatlaşdırması
+• API inteqrasiyaları (ödəniş, xarici sistemlər)
+
+💰 Təxmini qiymət: 1200 AZN-dən başlayaraq
+⏱ Müddət: 3-8 həftə (həcmə görə)
+
+Daha dəqiq qiymət təklifi üçün:
+👉 https://01cs.site/teklif-al.html
+
+0️⃣ Xidmətlər menyusuna qayıt`,
+
+  seo: `🔍 SEO Optimizasiyası
+
+Vebsaytınızın Google-da ön sıralara çıxması üçün kompleks SEO xidməti təqdim edirik.
+
+📌 Xidmət daxildir:
+• Açar söz analizi
+• Daxili SEO (on-page) optimizasiya
+• Texniki SEO audit
+• Xarici SEO (link building)
+• Aylıq hesabat
+
+💰 Qiymət: Layihəyə görə fərdi hesablanır
+⏱ Nəticə: 1-3 ay ərzində görünən irəliləyiş
+
+Daha dəqiq qiymət təklifi üçün:
+👉 https://01cs.site/teklif-al.html
+
+0️⃣ Xidmətlər menyusuna qayıt`,
+
+  support: `🛠️ Texniki Dəstək
+
+Mövcud layihəniz üçün davamlı texniki dəstək və inteqrasiya xidməti təqdim edirik.
+
+📌 Xidmət daxildir:
+• Mövcud sayt/tətbiqin yenilənməsi
+• Təhlükəsizlik yoxlaması
+• Yavaş saytın sürətləndirilməsi
+• Xarici API inteqrasiyası
+• Köhnə saytın tam yenilənməsi
+
+💰 Qiymət: İşin həcminə görə fərdi
+⏱ Müddət: Tapşırığa görə dəyişir
+
+Daha dəqiq qiymət təklifi üçün:
+👉 https://01cs.site/teklif-al.html
+
+0️⃣ Xidmətlər menyusuna qayıt`,
+
+  unknown: `Üzr istəyirik, bu seçimi anlamadım. 😊
+
+Zəhmət olmasa aşağıdan seçin:
+
+1️⃣ Xidmətlərimiz
+2️⃣ Haqqımızda
+3️⃣ Əlaqə`,
+};
+
+// ─── Menyu cavabı ─────────────────────────────────────────────────
+function getMenuResponse(userId, text) {
+  const t = text.trim().toLowerCase();
+  const state = userStates[userId] || "main";
+
+  // Ana menyu
+  if (t === "0" && state === "services_sub") {
+    userStates[userId] = "main";
+    return MENUS.main;
+  }
+  if (t === "0") {
+    userStates[userId] = "main";
+    return MENUS.main;
+  }
+
+  // İlk dəfə gəlir və ya ana menyudadır
+  if (state === "main") {
+    if (t === "1") { userStates[userId] = "services"; return MENUS.services; }
+    if (t === "2") { userStates[userId] = "about"; return MENUS.about; }
+    if (t === "3") { userStates[userId] = "contact"; return MENUS.contact; }
+    // İlk mesajda istənilən sözdə ana menyunu göstər
+    userStates[userId] = "main";
+    return MENUS.main;
+  }
+
+  // Xidmətlər alt menyusu
+  if (state === "services") {
+    if (t === "1") { userStates[userId] = "services_sub"; return MENUS.website; }
+    if (t === "2") { userStates[userId] = "services_sub"; return MENUS.mobile; }
+    if (t === "3") { userStates[userId] = "services_sub"; return MENUS.erp; }
+    if (t === "4") { userStates[userId] = "services_sub"; return MENUS.seo; }
+    if (t === "5") { userStates[userId] = "services_sub"; return MENUS.support; }
+    return MENUS.services;
+  }
+
+  // Digər vəziyyətlərdə
+  return MENUS.unknown;
 }
 
-// ─── System prompt ────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Sən 01 Code Studio-nun Instagram mesaj botusun. Adın "01 Bot"-dur.
-
-ŞİRKƏT:
-- Ad: 01 Code Studio | Vebsayt: www.01cs.site | Instagram: @01cs.az
-- WhatsApp: +994 10 717 20 34 | Email: info@01cs.site | Dəstək: 7/24
-
-XİDMƏTLƏR VƏ QİYMƏTLƏR:
-- Vizit/Korporativ Sayt: 250-700 AZN
-- E-ticarət/Online Mağaza: 700-1800 AZN
-- ERP/CRM/Avtomatlaşdırma: 1200 AZN-dən
-- Mobil Tətbiq (iOS/Android): 1800 AZN-dən
-- SEO Optimizasiyası: fərdi qiymət
-
-Qiymətlər tələbə görə dəyişir. Dəqiq qiymət üçün WhatsApp-a yönləndir.
-
-TEZLIKLƏ SORULAN SUALLAR:
-- Müddət? → Sadə sayt 5-10 iş günü, böyük layihə 3-6 həftə
-- Telefonlarda görünür? → Bəli, 100% responsiv
-- Ödəniş sistemi? → Bəli, yerli və beynəlxalq sistemlər
-- Sonradan dəstək? → Bəli, müqaviləyə görə pulsuz texniki dəstək
-- Köhnə sayt yenilənir? → Bəli, tam yeniləmə xidməti var
-
-QAYDA:
-- Azərbaycan dilində, qısa və təbii cavab ver (2-3 cümlə)
-- Heç vaxt uydurma məlumat yazma
-- Sadə, dostcasına danış — "hörmətli", "çox sevdiyimiz" kimi qəliz ifadə işlətmə
-- Bilmirsənsə birbaşa WhatsApp-a yönləndir: +994 10 717 20 34
-- Emoji çox az işlət`;
-
-// ─── Groq cavab ──────────────────────────────────────────────────
-async function generateReply(userMessage, context = "comment") {
-  const note = context === "dm"
-    ? "Müştəri DM-dən yazıb. Ətraflı cavab ver, lazım olsa WhatsApp-a yönləndir."
-    : "Müştəri şərh yazıb. Qısa cavab ver, ətraflı məlumat üçün DM-ə çağır.";
-
-  const response = await axios.post(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      model: "llama-3.1-8b-instant",
-      max_tokens: 180,
-      temperature: 0.4,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `${note}\n\nMesaj: "${userMessage}"` },
-      ],
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${CONFIG.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  return response.data.choices[0].message.content.trim();
-}
-
-// ─── API çağırışları ──────────────────────────────────────────────
-async function replyToComment(commentId, message) {
-  await axios.post(
-    `https://graph.instagram.com/v21.0/${commentId}/replies`,
-    { message },
-    { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
-  );
-}
-
+// ─── DM göndər ───────────────────────────────────────────────────
 async function sendDM(commentId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
@@ -151,6 +236,14 @@ async function replyToDM(recipientId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
     { recipient: { id: recipientId }, message: { text: message } },
+    { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
+  );
+}
+
+async function replyToComment(commentId, message) {
+  await axios.post(
+    `https://graph.instagram.com/v21.0/${commentId}/replies`,
+    { message },
     { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
   );
 }
@@ -176,12 +269,10 @@ app.post("/webhook", async (req, res) => {
     const body = req.body;
     if (body.object !== "instagram") return;
 
-    console.log("📦 Webhook:", JSON.stringify(body).slice(0, 300));
-
     for (const entry of body.entry || []) {
       const myId = entry.id;
 
-      // ── Şərh ────────────────────────────────────────────────────
+      // ── Şərh ──────────────────────────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
 
@@ -197,36 +288,38 @@ app.post("/webhook", async (req, res) => {
 
         console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
 
-        if (!shouldReply(commentText)) {
-          console.log(`⏭️ Filtr: cavab verilmədi`);
-          continue;
-        }
-
+        // Şərhə sabit cavab
         try {
-          const commentReply = await generateReply(commentText, "comment");
-          await replyToComment(commentId, commentReply);
+          await replyToComment(commentId, "Salam, şərhin DM-də ətraflı cavablandırıldı ✔️");
           console.log(`💬 Şərhə cavab yazıldı`);
         } catch (e) {
           console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message);
         }
 
+        // DM göndər
         try {
-          const dmText = `Salam! 👋 Şərhinizi gördük — sizi DM-də qarşılamaqdan məmnunuq. Nə bilmək istəyirsiniz?\n\n📲 Tez cavab: WhatsApp +994 10 717 20 34`;
-          await sendDM(commentId, dmText);
+          await sendDM(commentId, MENUS.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } catch (e) {
+          // DM göndərmək mümkün deyilsə şərhi dəyiş
           console.log("⚠️ DM xətası:", e.response?.data?.error?.message);
+          try {
+            await replyToComment(
+              commentId,
+              "Sizə DM göndərmək mümkün deyil, zəhmət olmasa siz bizimlə əlaqəyə keçin: +994 10 717 20 34"
+            );
+          } catch {}
         }
       }
 
-      // ── DM mesajı ────────────────────────────────────────────────
+      // ── DM söhbəti ────────────────────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
         const msgId = msg.message?.mid;
 
         if (!text || !senderId || !msgId) continue;
-        if (senderId === myId) continue; // öz mesajımız
+        if (senderId === myId) continue;
 
         if (isProcessed(msgId)) {
           console.log(`⏭️ DM artıq işlənib: ${msgId}`);
@@ -235,15 +328,8 @@ app.post("/webhook", async (req, res) => {
 
         console.log(`💬 DM: "${text}"`);
 
-        const reply = await generateReply(text, "dm");
-        const needsHuman = ["bilmirəm", "dəqiq deyə", "ətraflı məlumat"].some(w =>
-          reply.toLowerCase().includes(w)
-        );
-        const finalReply = needsHuman
-          ? `${reply}\n\n📲 Canlı dəstək: WhatsApp +994 10 717 20 34`
-          : reply;
-
-        await replyToDM(senderId, finalReply);
+        const response = getMenuResponse(senderId, text);
+        await replyToDM(senderId, response);
         console.log(`✅ DM cavablandı`);
       }
     }
