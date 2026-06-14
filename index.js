@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require("axios");
+const fs = require("fs");
 const app = express();
 
 app.use(express.json());
@@ -11,10 +12,37 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
 };
 
-// ─── Təkrar cavabı önləmək üçün işlənmiş ID-lər ─────────────────
-const processed = new Set();
+// ─── Təkrar önləmə (fayl əsaslı) ────────────────────────────────
+const PROCESSED_FILE = "/tmp/processed_ids.json";
 
-// ─── Şərhin cavablanmalı olub olmadığını yoxla ───────────────────
+function loadProcessed() {
+  try {
+    const data = JSON.parse(fs.readFileSync(PROCESSED_FILE, "utf8"));
+    const now = Date.now();
+    // 10 dəqiqədən köhnə olanları sil
+    const fresh = {};
+    for (const [id, ts] of Object.entries(data)) {
+      if (now - ts < 600000) fresh[id] = ts;
+    }
+    return fresh;
+  } catch {
+    return {};
+  }
+}
+
+function saveProcessed(data) {
+  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(data));
+}
+
+function isProcessed(id) {
+  const data = loadProcessed();
+  if (data[id]) return true;
+  data[id] = Date.now();
+  saveProcessed(data);
+  return false;
+}
+
+// ─── Şərh filtri ─────────────────────────────────────────────────
 function shouldReply(text) {
   if (!text) return false;
   const t = text.toLowerCase().trim();
@@ -44,15 +72,12 @@ function shouldReply(text) {
   return triggers.some(kw => t.includes(kw));
 }
 
-// ─── System prompt ───────────────────────────────────────────────
+// ─── System prompt ────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Sən 01 Code Studio-nun Instagram mesaj botusun. Adın "01 Bot"-dur.
 
-ŞİRKƏT MƏLUMATI:
-- Ad: 01 Code Studio
-- Vebsayt: www.01cs.site | Instagram: @01cs.az
-- WhatsApp: +994 10 717 20 34
-- Email: info@01cs.site
-- Dəstək: 7/24
+ŞİRKƏT:
+- Ad: 01 Code Studio | Vebsayt: www.01cs.site | Instagram: @01cs.az
+- WhatsApp: +994 10 717 20 34 | Email: info@01cs.site | Dəstək: 7/24
 
 XİDMƏTLƏR VƏ QİYMƏTLƏR:
 - Vizit/Korporativ Sayt: 250-700 AZN
@@ -60,37 +85,35 @@ XİDMƏTLƏR VƏ QİYMƏTLƏR:
 - ERP/CRM/Avtomatlaşdırma: 1200 AZN-dən
 - Mobil Tətbiq (iOS/Android): 1800 AZN-dən
 - SEO Optimizasiyası: fərdi qiymət
-- Texniki Dəstək/İnteqrasiya: fərdi qiymət
 
-Qiymətlər tələbə görə dəyişir. Dəqiq qiymət üçün mütləq WhatsApp-a yönləndir.
+Qiymətlər tələbə görə dəyişir. Dəqiq qiymət üçün WhatsApp-a yönləndir.
 
-TƏZ-TEZ SUALLAR:
+TEZLIKLƏ SORULAN SUALLAR:
 - Müddət? → Sadə sayt 5-10 iş günü, böyük layihə 3-6 həftə
 - Telefonlarda görünür? → Bəli, 100% responsiv
-- Ödəniş sistemi? → Bəli, yerli və beynəlxalq sistemlər qoşulur
+- Ödəniş sistemi? → Bəli, yerli və beynəlxalq sistemlər
 - Sonradan dəstək? → Bəli, müqaviləyə görə pulsuz texniki dəstək
 - Köhnə sayt yenilənir? → Bəli, tam yeniləmə xidməti var
 
-ÜSLUB QAYDALARI:
-- Azərbaycan dilində, təbii və qısa cavab ver (2-3 cümlə)
-- Heç vaxt uydurma məlumat yazma, bilmirsənsə WhatsApp-a yönləndir
-- "Çox sevdiyimiz", "hörmətli" kimi qəliz ifadələr işlətmə
-- Sadə, dostcasına danış
-- Hər cavabın sonunda müştərini ya DM-ə, ya WhatsApp-a yönləndir
+QAYDA:
+- Azərbaycan dilində, qısa və təbii cavab ver (2-3 cümlə)
+- Heç vaxt uydurma məlumat yazma
+- Sadə, dostcasına danış — "hörmətli", "çox sevdiyimiz" kimi qəliz ifadə işlətmə
+- Bilmirsənsə birbaşa WhatsApp-a yönləndir: +994 10 717 20 34
 - Emoji çox az işlət`;
 
-// ─── Groq ilə cavab yarat ────────────────────────────────────────
+// ─── Groq cavab ──────────────────────────────────────────────────
 async function generateReply(userMessage, context = "comment") {
   const note = context === "dm"
     ? "Müştəri DM-dən yazıb. Ətraflı cavab ver, lazım olsa WhatsApp-a yönləndir."
-    : "Müştəri şərh yazıb. Qısa, dəvətkar cavab ver, ətraflı məlumat üçün DM-ə çağır.";
+    : "Müştəri şərh yazıb. Qısa cavab ver, ətraflı məlumat üçün DM-ə çağır.";
 
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       model: "llama-3.1-8b-instant",
       max_tokens: 180,
-      temperature: 0.5,
+      temperature: 0.4,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `${note}\n\nMesaj: "${userMessage}"` },
@@ -107,7 +130,7 @@ async function generateReply(userMessage, context = "comment") {
   return response.data.choices[0].message.content.trim();
 }
 
-// ─── Şərhə cavab yaz ─────────────────────────────────────────────
+// ─── API çağırışları ──────────────────────────────────────────────
 async function replyToComment(commentId, message) {
   await axios.post(
     `https://graph.instagram.com/v21.0/${commentId}/replies`,
@@ -116,7 +139,6 @@ async function replyToComment(commentId, message) {
   );
 }
 
-// ─── DM göndər (şərhdən) ─────────────────────────────────────────
 async function sendDM(commentId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
@@ -125,7 +147,6 @@ async function sendDM(commentId, message) {
   );
 }
 
-// ─── DM cavabı göndər ────────────────────────────────────────────
 async function replyToDM(recipientId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
@@ -155,9 +176,12 @@ app.post("/webhook", async (req, res) => {
     const body = req.body;
     if (body.object !== "instagram") return;
 
-    for (const entry of body.entry || []) {
+    console.log("📦 Webhook:", JSON.stringify(body).slice(0, 300));
 
-      // ── Şərh hadisəsi ──────────────────────────────────────────
+    for (const entry of body.entry || []) {
+      const myId = entry.id;
+
+      // ── Şərh ────────────────────────────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
 
@@ -166,13 +190,10 @@ app.post("/webhook", async (req, res) => {
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
 
-        // Təkrar işləməyi önlə
-        if (processed.has(commentId)) {
-          console.log(`⏭️ Artıq işlənib: ${commentId}`);
+        if (isProcessed(commentId)) {
+          console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
           continue;
         }
-        processed.add(commentId);
-        setTimeout(() => processed.delete(commentId), 60000);
 
         console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
 
@@ -181,18 +202,16 @@ app.post("/webhook", async (req, res) => {
           continue;
         }
 
-        // Şərhə cavab yaz
         try {
           const commentReply = await generateReply(commentText, "comment");
           await replyToComment(commentId, commentReply);
-          console.log(`💬 Şərhə cavab: ${commentReply}`);
+          console.log(`💬 Şərhə cavab yazıldı`);
         } catch (e) {
           console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message);
         }
 
-        // DM göndər
         try {
-          const dmText = `Salam! 👋 Şərhinizi gördük — sizi DM-də qarşılamaqdan məmnunuq. Nə bilmək istəyirsiniz? Ətraflı məlumat, qiymət və ya digər suallar üçün buradayıq.\n\n📲 Tez cavab üçün WhatsApp: +994 10 717 20 34`;
+          const dmText = `Salam! 👋 Şərhinizi gördük — sizi DM-də qarşılamaqdan məmnunuq. Nə bilmək istəyirsiniz?\n\n📲 Tez cavab: WhatsApp +994 10 717 20 34`;
           await sendDM(commentId, dmText);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } catch (e) {
@@ -200,32 +219,28 @@ app.post("/webhook", async (req, res) => {
         }
       }
 
-      // ── DM söhbəti ─────────────────────────────────────────────
+      // ── DM mesajı ────────────────────────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
         const msgId = msg.message?.mid;
 
         if (!text || !senderId || !msgId) continue;
-        if (senderId === entry.id) continue; // öz mesajımız
+        if (senderId === myId) continue; // öz mesajımız
 
-        if (processed.has(msgId)) {
+        if (isProcessed(msgId)) {
           console.log(`⏭️ DM artıq işlənib: ${msgId}`);
           continue;
         }
-        processed.add(msgId);
-        setTimeout(() => processed.delete(msgId), 60000);
 
         console.log(`💬 DM: "${text}"`);
 
         const reply = await generateReply(text, "dm");
-
-        // İlişdisə WhatsApp əlavə et
         const needsHuman = ["bilmirəm", "dəqiq deyə", "ətraflı məlumat"].some(w =>
           reply.toLowerCase().includes(w)
         );
         const finalReply = needsHuman
-          ? `${reply}\n\n📲 Canlı dəstək üçün WhatsApp: +994 10 717 20 34`
+          ? `${reply}\n\n📲 Canlı dəstək: WhatsApp +994 10 717 20 34`
           : reply;
 
         await replyToDM(senderId, finalReply);
@@ -237,7 +252,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ─── Health check ──────────────────────────────────────────────────
 app.get("/", (req, res) => res.send("01CS Instagram Bot işləyir ✅"));
 
 app.listen(CONFIG.PORT, () => console.log(`🚀 Server port ${CONFIG.PORT}-də başladı`));
