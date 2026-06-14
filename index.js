@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require("axios");
+const Groq = require("groq-sdk");
 const app = express();
 
 app.use(express.json());
@@ -7,18 +8,67 @@ app.use(express.json());
 const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
-  GROQ_API_KEY: process.env.GROQ_API_KEY, // istifadə edilmir, qalır
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
   PORT: process.env.PORT || 3000,
 };
 
+// Groq müştəri
+let groq = null;
+if (CONFIG.GROQ_API_KEY) {
+  groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+}
+
+// AI sistemi mesajı
+const AI_SYSTEM_PROMPT = `
+Sən 01 Code Studio-nun rəsmi Instagram köməkçisisən. 
+Şirkət Azərbaycanda vebsayt, mobil tətbiq, ERP/CRM, SEO və texniki dəstək xidmətləri göstərir.
+- Yalnız bu xidmətlər haqqında suallara cavab ver.
+- Cavabların maksimum 2 cümlədən ibarət olsun.
+- Qısa, peşəkar və faydalı ol.
+- Əgər sual şirkətin fəaliyyəti ilə əlaqəli deyilsə, yalnız "Üzr istəyirik, mən yalnız 01 Code Studio haqqında məlumat verə bilərəm. Zəhmət olmasa menyudan seçim edin." yaz.
+- Heç vaxt şəxsi fikir bildirmə, təxmini qiymətləri linkə yönləndir: https://01cs.site/teklif-al.html
+- Sualı başa düşmədisə, ana menyunu təklif et.
+`;
+
+// AI çağırışı (timeout ilə)
+async function askGroq(userMessage) {
+  if (!groq) return null;
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 saniyə
+
+  try {
+    const response = await groq.chat.completions.create({
+      model: "llama3-8b-8192",
+      messages: [
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.3,
+      max_tokens: 100,
+    }, { signal: controller.signal });
+    
+    clearTimeout(timeoutId);
+    let reply = response.choices[0]?.message?.content?.trim();
+    if (!reply) return null;
+    // Çox uzun cavabı kəs
+    if (reply.length > 300) reply = reply.substring(0, 300) + "...";
+    return reply;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.log("AI xətası:", err.message);
+    return null;
+  }
+}
+
 // ─── Yaddaşda işlənmiş ID-lər (race condition yoxdur) ────────────
-const processedIds = new Map(); // key: id, value: timestamp
+const processedIds = new Map();
 
 function isProcessed(id) {
   const now = Date.now();
   if (processedIds.has(id)) {
     const ts = processedIds.get(id);
-    if (now - ts < 600000) return true; // 10 dəqiqə
+    if (now - ts < 600000) return true;
     else processedIds.delete(id);
   }
   processedIds.set(id, now);
@@ -26,8 +76,8 @@ function isProcessed(id) {
 }
 
 // ─── İstifadəçi vəziyyətləri (vaxtaşımı ilə) ────────────────────
-const userStates = new Map(); // key: userId, value: { state, lastActive }
-const STATE_TIMEOUT = 30 * 60 * 1000; // 30 dəqiqə
+const userStates = new Map();
+const STATE_TIMEOUT = 30 * 60 * 1000;
 
 function getUserState(userId) {
   const now = Date.now();
@@ -46,7 +96,7 @@ function setUserState(userId, state) {
   userStates.set(userId, { state, lastActive: Date.now() });
 }
 
-// ─── Menyu məzmunu (tamamilə orijinal, dəyişməyib) ──────────────
+// ─── Menyu məzmunu (orijinal) ────────────────────────────────────
 const MENUS = {
   main: `Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋
 
@@ -184,8 +234,8 @@ Daha dəqiq qiymət təklifi üçün:
 0️⃣ Xidmətlər menyusuna qayıt`,
 };
 
-// ─── Menyu cavabı (düzəldilmiş) ─────────────────────────────────
-function getMenuResponse(userId, text) {
+// ─── Menyu cavabı (AI dəstəkli) ─────────────────────────────────
+async function getMenuResponse(userId, text) {
   const t = text.trim().toLowerCase();
   let state = getUserState(userId);
 
@@ -196,7 +246,6 @@ function getMenuResponse(userId, text) {
     return MENUS.main;
   }
 
-  // Əgər state yoxdursa, main qəbul et
   if (!state) state = "main";
 
   // Ana menyu
@@ -204,7 +253,9 @@ function getMenuResponse(userId, text) {
     if (t === "1") { setUserState(userId, "services"); return MENUS.services; }
     if (t === "2") { setUserState(userId, "about"); return MENUS.about; }
     if (t === "3") { setUserState(userId, "contact"); return MENUS.contact; }
-    // Tanınmayan girişdə ana menyunu göstər
+    // Menyu seçimi deyilsə, AI-ya soruş
+    const aiReply = await askGroq(text);
+    if (aiReply) return aiReply;
     return MENUS.main;
   }
 
@@ -216,17 +267,21 @@ function getMenuResponse(userId, text) {
     if (t === "4") { setUserState(userId, "services_sub"); return MENUS.seo; }
     if (t === "5") { setUserState(userId, "services_sub"); return MENUS.support; }
     if (t === "0") { setUserState(userId, "main"); return MENUS.main; }
-    // Tanınmayan -> yenə services menyusunu göstər
+    // Tanınmayan – AI
+    const aiReply = await askGroq(text);
+    if (aiReply) return aiReply;
     return MENUS.services;
   }
 
-  // Əgər services_sub və ya hər hansı digər dərin state – 0 ilə mainə qayıt
+  // Dərin menyularda 0 ilə qayıt
   if (t === "0") {
     setUserState(userId, "main");
     return MENUS.main;
   }
 
-  // Əgər bura gəlib çıxıbsa (heç bir şərtə düşməyib) – ana menyu
+  // Qalan hər şey üçün AI
+  const aiReply = await askGroq(text);
+  if (aiReply) return aiReply;
   setUserState(userId, "main");
   return MENUS.main;
 }
@@ -270,7 +325,6 @@ app.get("/webhook", (req, res) => {
 });
 
 app.post("/webhook", async (req, res) => {
-  // Dərhal 200 qaytar – Instagram təkrar göndərməsin
   res.sendStatus(200);
 
   try {
@@ -280,23 +334,17 @@ app.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       const myId = entry.id;
 
-      // ─── Şərh emalı ──────────────────────────────────────────
+      // Şərh emalı
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
-
         const comment = change.value;
         const commentId = comment.id;
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
 
-        if (isProcessed(commentId)) {
-          console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
-          continue;
-        }
-
+        if (isProcessed(commentId)) continue;
         console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
 
-        // Şərhə bir dəfə cavab
         try {
           await replyToComment(commentId, "Salam, şərhin DM-də ətraflı cavablandırıldı ✔️");
           console.log(`💬 Şərhə cavab yazıldı`);
@@ -304,38 +352,28 @@ app.post("/webhook", async (req, res) => {
           console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message);
         }
 
-        // DM göndər
         try {
           await sendDM(commentId, MENUS.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } catch (e) {
           console.log("⚠️ DM xətası:", e.response?.data?.error?.message);
           try {
-            await replyToComment(
-              commentId,
-              "Sizə DM göndərmək mümkün deyil, zəhmət olmasa siz bizimlə əlaqəyə keçin: +994 10 717 20 34"
-            );
+            await replyToComment(commentId, "Sizə DM göndərmək mümkün deyil, zəhmət olmasa bizi +994107172034 nömrəsindən əlaqələndirin.");
           } catch {}
         }
       }
 
-      // ─── DM söhbəti ──────────────────────────────────────────
+      // DM söhbəti
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
         const msgId = msg.message?.mid;
-
         if (!text || !senderId || !msgId) continue;
         if (senderId === myId) continue;
-
-        if (isProcessed(msgId)) {
-          console.log(`⏭️ DM artıq işlənib: ${msgId}`);
-          continue;
-        }
+        if (isProcessed(msgId)) continue;
 
         console.log(`💬 DM: "${text}"`);
-
-        const response = getMenuResponse(senderId, text);
+        const response = await getMenuResponse(senderId, text);
         await replyToDM(senderId, response);
         console.log(`✅ DM cavablandı`);
       }
