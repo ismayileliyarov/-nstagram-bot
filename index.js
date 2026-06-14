@@ -1,6 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-const Groq = require("groq-sdk");
 const app = express();
 
 app.use(express.json());
@@ -12,47 +11,83 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
 };
 
-// Groq müştəri
-let groq = null;
-if (CONFIG.GROQ_API_KEY) {
-  groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+// ─── Yaddaşda işlənmiş ID-lər ──────────────────────────────────
+const processedIds = new Map();
+function isProcessed(id) {
+  const now = Date.now();
+  if (processedIds.has(id)) {
+    if (now - processedIds.get(id) < 600000) return true;
+    else processedIds.delete(id);
+  }
+  processedIds.set(id, now);
+  return false;
 }
 
-// AI sistemi mesajı
-const AI_SYSTEM_PROMPT = `
-Sən 01 Code Studio-nun rəsmi Instagram köməkçisisən. 
-Şirkət Azərbaycanda vebsayt, mobil tətbiq, ERP/CRM, SEO və texniki dəstək xidmətləri göstərir.
-- Yalnız bu xidmətlər haqqında suallara cavab ver.
-- Cavabların maksimum 2 cümlədən ibarət olsun.
-- Qısa, peşəkar və faydalı ol.
-- Əgər sual şirkətin fəaliyyəti ilə əlaqəli deyilsə, yalnız "Üzr istəyirik, mən yalnız 01 Code Studio haqqında məlumat verə bilərəm. Zəhmət olmasa menyudan seçim edin." yaz.
-- Heç vaxt şəxsi fikir bildirmə, təxmini qiymətləri linkə yönləndir: https://01cs.site/teklif-al.html
-- Sualı başa düşmədisə, ana menyunu təklif et.
-`;
+// ─── İstifadəçi vəziyyətləri ────────────────────────────────────
+const userStates = new Map(); // userId -> { state, lastActive, lastService }
+const STATE_TIMEOUT = 30 * 60 * 1000;
 
-// AI çağırışı (timeout ilə)
-async function askGroq(userMessage) {
-  if (!groq) return null;
-  
+function getUserState(userId) {
+  const now = Date.now();
+  const record = userStates.get(userId);
+  if (!record) return { state: "main", lastService: null };
+  if (now - record.lastActive > STATE_TIMEOUT) {
+    userStates.delete(userId);
+    return { state: "main", lastService: null };
+  }
+  record.lastActive = now;
+  userStates.set(userId, record);
+  return { state: record.state, lastService: record.lastService };
+}
+
+function setUserState(userId, state, lastService = null) {
+  const existing = userStates.get(userId) || {};
+  userStates.set(userId, {
+    state,
+    lastActive: Date.now(),
+    lastService: lastService !== undefined ? lastService : existing.lastService
+  });
+}
+
+// ─── AI köməkçisi (axios ilə, SDK lazım deyil) ───────────────────
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+async function askGroq(userMessage, contextService = null) {
+  if (!CONFIG.GROQ_API_KEY) {
+    console.log("⚠️ GROQ_API_KEY təyin edilməyib, AI işləmir.");
+    return null;
+  }
+
+  const systemPrompt = `Sən 01 Code Studio-nun rəsmi Instagram köməkçisisən. 
+Şirkət Azərbaycanda vebsayt, mobil tətbiq, ERP/CRM, SEO və texniki dəstək xidmətləri göstərir.
+- Cavabların maksimum 3 cümlə olsun, çox qısa və faydalı.
+- Əgər sual şirkətin işi ilə əlaqəli deyilsə: "Üzr istəyirik, mən yalnız 01 Code Studio haqqında məlumat verə bilərəm. Zəhmət olmasa menyudan seçim edin."
+- Qiymət soruşanda: "Təxmini qiymətlər üçün https://01cs.site/teklif-al.html linkinə keçin."
+- "Daha ətraflı" yazılsa, cari xidmət haqqında əlavə məlumat ver: misal üçün, mobil app-də hansı xüsusiyyətlər, nümunə layihələr.
+${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır. O, bu xidmət haqqında daha ətraflı istəyir.` : ""}`;
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 saniyə
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const response = await groq.chat.completions.create({
+    const response = await axios.post(GROQ_API_URL, {
       model: "llama3-8b-8192",
       messages: [
-        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userMessage }
       ],
-      temperature: 0.3,
-      max_tokens: 100,
-    }, { signal: controller.signal });
-    
+      temperature: 0.5,
+      max_tokens: 200,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${CONFIG.GROQ_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal
+    });
     clearTimeout(timeoutId);
-    let reply = response.choices[0]?.message?.content?.trim();
-    if (!reply) return null;
-    // Çox uzun cavabı kəs
-    if (reply.length > 300) reply = reply.substring(0, 300) + "...";
+    let reply = response.data.choices[0].message.content.trim();
+    if (reply.length > 400) reply = reply.substring(0, 400) + "...";
     return reply;
   } catch (err) {
     clearTimeout(timeoutId);
@@ -61,252 +96,103 @@ async function askGroq(userMessage) {
   }
 }
 
-// ─── Yaddaşda işlənmiş ID-lər (race condition yoxdur) ────────────
-const processedIds = new Map();
-
-function isProcessed(id) {
-  const now = Date.now();
-  if (processedIds.has(id)) {
-    const ts = processedIds.get(id);
-    if (now - ts < 600000) return true;
-    else processedIds.delete(id);
+// ─── Ağıllı fallback (AI olmadıqda işləyir) ──────────────────────
+function smartFallback(message, lastService) {
+  const m = message.toLowerCase();
+  if (m.includes("qiymət") || m.includes("pul") || m.includes("neçə")) {
+    return "Təxmini qiymətlər üçün zəhmət olmasa linkə keçin: https://01cs.site/teklif-al.html 😊";
   }
-  processedIds.set(id, now);
-  return false;
-}
-
-// ─── İstifadəçi vəziyyətləri (vaxtaşımı ilə) ────────────────────
-const userStates = new Map();
-const STATE_TIMEOUT = 30 * 60 * 1000;
-
-function getUserState(userId) {
-  const now = Date.now();
-  const record = userStates.get(userId);
-  if (!record) return "main";
-  if (now - record.lastActive > STATE_TIMEOUT) {
-    userStates.delete(userId);
-    return "main";
+  if (m.includes("daha ətraflı") || m.includes("ətraflı məlumat")) {
+    if (lastService === "website") return "Vebsayt xidmətimizə daxildir: tam responsiv dizayn, admin panel, ödəniş sistemi, SEO hazırlığı. İstənilən növ sayt hazırlayırıq.";
+    if (lastService === "mobile") return "Mobil tətbiqlərimiz native (iOS/Android) və ya cross-platform ola bilər. Push notification, ödəniş, chat, xəritə kimi funksiyaları dəstəkləyirik.";
+    if (lastService === "erp") return "ERP sistemlərimiz müştəri, anbar, satış, işçi və maliyyə idarəsi üçün fərdi hazırlanır. Tam avtomatlaşdırma təmin edirik.";
+    if (lastService === "seo") return "SEO xidmətimiz açar söz analizi, texniki audit, backlink və aylıq hesabatı əhatə edir. Google-da ilk səhifə hədəfimizdir.";
+    if (lastService === "support") return "Texniki dəstək: mövcud layihənizin təhlükəsizlik, sürət və funksionallıq baxımından yenilənməsi, 7/24 dəstək.";
+    return "Hansı xidmət haqqında ətraflı bilmək istəyirsiniz? 1️⃣ Vebsayt 2️⃣ Mobil App 3️⃣ ERP 4️⃣ SEO 5️⃣ Texniki dəstək";
   }
-  record.lastActive = now;
-  userStates.set(userId, record);
-  return record.state;
+  return null;
 }
 
-function setUserState(userId, state) {
-  userStates.set(userId, { state, lastActive: Date.now() });
-}
-
-// ─── Menyu məzmunu (orijinal) ────────────────────────────────────
+// ─── Menyular (əvvəlki kimi, qısaldılmış) ─────────────────────────
 const MENUS = {
-  main: `Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋
-
-Müraciətiniz nə ilə bağlıdır? Zəhmət olmasa seçin:
-
-1️⃣ Xidmətlərimiz
-2️⃣ Haqqımızda
-3️⃣ Əlaqə`,
-
-  services: `Hansı xidmətlə maraqlanırsınız?
-
-1️⃣ Vebsayt
-2️⃣ Mobil Tətbiq
-3️⃣ ERP / Avtomatlaşdırma
-4️⃣ SEO Optimizasiyası
-5️⃣ Texniki Dəstək
-0️⃣ Ana menyuya qayıt`,
-
-  about: `01 Code Studio — Azərbaycanda bizneslərin rəqəmsallaşması üçün peşəkar proqram həlləri təqdim edən şirkətdir. 🚀
-
-Vebsayt, mobil tətbiq, ERP sistemi və AI həllərindən tutmuş SEO və texniki dəstəyə qədər — biznesinizin onlayn dünyada tam gücü ilə təmsil olunması üçün çalışırıq.
-
-Hər layihəyə fərdi yanaşır, müştərilərimizi layihə bitdikdən sonra da tək qoymuruq. 💼
-
-🌐 www.01cs.site | 📸 @01cs.az
-
-0️⃣ Ana menyuya qayıt`,
-
-  contact: `Bizimlə əlaqə saxlamaq üçün:
-
-📧 Email: info@01cs.site
-💬 WhatsApp: wa.me/994107172034
-📞 Telefon: +994 10 717 20 34
-
-İş saatları: 7/24 🕐
-
-0️⃣ Ana menyuya qayıt`,
-
-  website: `💻 Vebsayt Hazırlanması
-
-Biznesiniz üçün modern, sürətli və mobil uyğun vebsaytlar hazırlayırıq.
-
-📌 Xidmət növləri:
-• Vizit / Korporativ sayt
-• E-ticarət / Online mağaza
-• Restoran menyu portalı
-• İdarəetmə paneli (dashboard)
-
-💰 Təxmini qiymətlər:
-• Vizit / Korporativ sayt: 250-700 AZN
-• E-ticarət / Online mağaza: 700-1800 AZN
-
-⏱ Müddət: 5-10 iş günü (sadə), 3-6 həftə (böyük)
-✅ 100% responsiv (mobil uyğun)
-✅ Ödəniş sistemi inteqrasiyası
-✅ Layihə sonrası pulsuz texniki dəstək
-
-Daha dəqiq qiymət təklifi üçün:
-👉 https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlər menyusuna qayıt`,
-
-  mobile: `📱 Mobil Tətbiq Hazırlanması
-
-iOS və Android platformaları üçün funksional və istifadəçi yönümlü mobil tətbiqlər hazırlayırıq.
-
-📌 Xüsusiyyətlər:
-• iOS və Android üçün eyni vaxtda
-• Sürətli və müasir UI/UX dizayn
-• Bildiriş sistemi, ödəniş inteqrasiyası
-• Admin idarəetmə paneli
-
-💰 Təxmini qiymət: 1800 AZN-dən başlayaraq
-⏱ Müddət: Layihəyə görə 4-10 həftə
-
-Daha dəqiq qiymət təklifi üçün:
-👉 https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlər menyusuna qayıt`,
-
-  erp: `⚙️ ERP / CRM / Avtomatlaşdırma
-
-Müəssisə daxili prosesləri tam rəqəmsal idarə etmək üçün fərdi sistemlər hazırlayırıq.
-
-📌 Həll növləri:
-• Müştəri idarəetmə sistemi (CRM)
-• Anbar və satış idarəetməsi (ERP)
-• İş axını avtomatlaşdırması
-• API inteqrasiyaları (ödəniş, xarici sistemlər)
-
-💰 Təxmini qiymət: 1200 AZN-dən başlayaraq
-⏱ Müddət: 3-8 həftə (həcmə görə)
-
-Daha dəqiq qiymət təklifi üçün:
-👉 https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlər menyusuna qayıt`,
-
-  seo: `🔍 SEO Optimizasiyası
-
-Vebsaytınızın Google-da ön sıralara çıxması üçün kompleks SEO xidməti təqdim edirik.
-
-📌 Xidmət daxildir:
-• Açar söz analizi
-• Daxili SEO (on-page) optimizasiya
-• Texniki SEO audit
-• Xarici SEO (link building)
-• Aylıq hesabat
-
-💰 Qiymət: Layihəyə görə fərdi hesablanır
-⏱ Nəticə: 1-3 ay ərzində görünən irəliləyiş
-
-Daha dəqiq qiymət təklifi üçün:
-👉 https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlər menyusuna qayıt`,
-
-  support: `🛠️ Texniki Dəstək
-
-Mövcud layihəniz üçün davamlı texniki dəstək və inteqrasiya xidməti təqdim edirik.
-
-📌 Xidmət daxildir:
-• Mövcud sayt/tətbiqin yenilənməsi
-• Təhlükəsizlik yoxlaması
-• Yavaş saytın sürətləndirilməsi
-• Xarici API inteqrasiyası
-• Köhnə saytın tam yenilənməsi
-
-💰 Qiymət: İşin həcminə görə fərdi
-⏱ Müddət: Tapşırığa görə dəyişir
-
-Daha dəqiq qiymət təklifi üçün:
-👉 https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlər menyusuna qayıt`,
+  main: `Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋\n\nMüraciətiniz nə ilə bağlıdır? Zəhmət olmasa seçin:\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə`,
+  services: `Hansı xidmətlə maraqlanırsınız?\n\n1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP / Avtomatlaşdırma\n4️⃣ SEO Optimizasiyası\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyuya qayıt`,
+  about: `01 Code Studio — Azərbaycanda bizneslərin rəqəmsallaşması üçün peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n\n0️⃣ Ana menyuya qayıt`,
+  contact: `📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994 10 717 20 34\n7/24\n\n0️⃣ Ana menyuya qayıt`,
+  website: `💻 Vebsayt: Vizit 250-700 AZN, E-ticarət 700-1800 AZN. Müddət 5-10 gün.\nDəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+  mobile: `📱 Mobil Tətbiq: 1800 AZN-dən başlayır. 4-10 həftə. Native iOS/Android.\nLink: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+  erp: `⚙️ ERP/CRM: 1200 AZN-dən. 3-8 həftə. Fərdi avtomatlaşdırma.\nLink: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+  seo: `🔍 SEO: Qiymət fərdi. 1-3 ayda nəticə.\nLink: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+  support: `🛠️ Texniki Dəstək: Qiymət işin həcminə görə.\nLink: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`
 };
 
-// ─── Menyu cavabı (AI dəstəkli) ─────────────────────────────────
-async function getMenuResponse(userId, text) {
+// ─── Cavab meneceri (AI + fallback) ──────────────────────────────
+async function getResponse(userId, text) {
   const t = text.trim().toLowerCase();
-  let state = getUserState(userId);
+  const { state, lastService } = getUserState(userId);
 
-  // Ümumi ana menyu komandaları
-  const mainKeywords = ["0", "menu", "salam", "start", "hi", "main", "ana menyu"];
-  if (mainKeywords.includes(t)) {
+  // Ana menyu komandaları
+  if (["0", "menu", "salam", "start", "hi", "main", "ana menyu"].includes(t)) {
     setUserState(userId, "main");
     return MENUS.main;
   }
 
-  if (!state) state = "main";
-
-  // Ana menyu
+  // State maşını (əvvəlki kimi)
   if (state === "main") {
     if (t === "1") { setUserState(userId, "services"); return MENUS.services; }
     if (t === "2") { setUserState(userId, "about"); return MENUS.about; }
     if (t === "3") { setUserState(userId, "contact"); return MENUS.contact; }
-    // Menyu seçimi deyilsə, AI-ya soruş
-    const aiReply = await askGroq(text);
+    // Menyu seçimi deyil, AI-ya soruş
+    const aiReply = await askGroq(text, null);
     if (aiReply) return aiReply;
+    const fallback = smartFallback(text, lastService);
+    if (fallback) return fallback;
     return MENUS.main;
   }
 
-  // Xidmətlər menyusu
   if (state === "services") {
-    if (t === "1") { setUserState(userId, "services_sub"); return MENUS.website; }
-    if (t === "2") { setUserState(userId, "services_sub"); return MENUS.mobile; }
-    if (t === "3") { setUserState(userId, "services_sub"); return MENUS.erp; }
-    if (t === "4") { setUserState(userId, "services_sub"); return MENUS.seo; }
-    if (t === "5") { setUserState(userId, "services_sub"); return MENUS.support; }
+    if (t === "1") { setUserState(userId, "services_sub", "website"); return MENUS.website; }
+    if (t === "2") { setUserState(userId, "services_sub", "mobile"); return MENUS.mobile; }
+    if (t === "3") { setUserState(userId, "services_sub", "erp"); return MENUS.erp; }
+    if (t === "4") { setUserState(userId, "services_sub", "seo"); return MENUS.seo; }
+    if (t === "5") { setUserState(userId, "services_sub", "support"); return MENUS.support; }
     if (t === "0") { setUserState(userId, "main"); return MENUS.main; }
-    // Tanınmayan – AI
-    const aiReply = await askGroq(text);
+    const aiReply = await askGroq(text, null);
     if (aiReply) return aiReply;
     return MENUS.services;
   }
 
-  // Dərin menyularda 0 ilə qayıt
+  // services_sub və ya hər hansı dərin menyu
   if (t === "0") {
     setUserState(userId, "main");
     return MENUS.main;
   }
 
-  // Qalan hər şey üçün AI
-  const aiReply = await askGroq(text);
+  // İstifadəçi "daha ətraflı" və ya digər sual yazıb – AI çağır, context olaraq lastService göndər
+  const aiReply = await askGroq(text, lastService);
   if (aiReply) return aiReply;
+  const fallback = smartFallback(text, lastService);
+  if (fallback) return fallback;
   setUserState(userId, "main");
   return MENUS.main;
 }
 
-// ─── Instagram API köməkçiləri ───────────────────────────────────
-async function sendDM(commentId, message) {
-  await axios.post(
-    "https://graph.instagram.com/v21.0/me/messages",
-    { recipient: { comment_id: commentId }, message: { text: message } },
-    { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
-  );
-}
-
+// ─── Instagram API ────────────────────────────────────────────────
 async function replyToDM(recipientId, message) {
-  await axios.post(
-    "https://graph.instagram.com/v21.0/me/messages",
+  await axios.post("https://graph.instagram.com/v21.0/me/messages",
     { recipient: { id: recipientId }, message: { text: message } },
     { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
   );
 }
-
 async function replyToComment(commentId, message) {
-  await axios.post(
-    `https://graph.instagram.com/v21.0/${commentId}/replies`,
+  await axios.post(`https://graph.instagram.com/v21.0/${commentId}/replies`,
     { message },
+    { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
+  );
+}
+async function sendDM(commentId, message) {
+  await axios.post("https://graph.instagram.com/v21.0/me/messages",
+    { recipient: { comment_id: commentId }, message: { text: message } },
     { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
   );
 }
@@ -317,7 +203,6 @@ app.get("/webhook", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
   if (mode === "subscribe" && token === CONFIG.VERIFY_TOKEN) {
-    console.log("✅ Webhook verified!");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -326,44 +211,23 @@ app.get("/webhook", (req, res) => {
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
-
   try {
     const body = req.body;
     if (body.object !== "instagram") return;
 
     for (const entry of body.entry || []) {
       const myId = entry.id;
-
-      // Şərh emalı
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
         const comment = change.value;
         const commentId = comment.id;
-        const commentText = comment.text || "";
-        const fromUser = comment.from?.username || "istifadəçi";
-
         if (isProcessed(commentId)) continue;
-        console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
-
+        console.log(`📩 Şərh: ${comment.text}`);
         try {
-          await replyToComment(commentId, "Salam, şərhin DM-də ətraflı cavablandırıldı ✔️");
-          console.log(`💬 Şərhə cavab yazıldı`);
-        } catch (e) {
-          console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message);
-        }
-
-        try {
+          await replyToComment(commentId, "Salam, şərhinizə cavab DM-də göndərildi ✔️");
           await sendDM(commentId, MENUS.main);
-          console.log(`✉️ DM göndərildi → @${fromUser}`);
-        } catch (e) {
-          console.log("⚠️ DM xətası:", e.response?.data?.error?.message);
-          try {
-            await replyToComment(commentId, "Sizə DM göndərmək mümkün deyil, zəhmət olmasa bizi +994107172034 nömrəsindən əlaqələndirin.");
-          } catch {}
-        }
+        } catch (e) { console.log(e.message); }
       }
-
-      // DM söhbəti
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
@@ -371,18 +235,16 @@ app.post("/webhook", async (req, res) => {
         if (!text || !senderId || !msgId) continue;
         if (senderId === myId) continue;
         if (isProcessed(msgId)) continue;
-
         console.log(`💬 DM: "${text}"`);
-        const response = await getMenuResponse(senderId, text);
+        const response = await getResponse(senderId, text);
         await replyToDM(senderId, response);
-        console.log(`✅ DM cavablandı`);
       }
     }
   } catch (err) {
-    console.error("❌ Xəta:", err.response?.data || err.message);
+    console.error("❌ Xəta:", err.message);
   }
 });
 
-app.get("/", (req, res) => res.send("01CS Instagram Bot işləyir ✅"));
+app.get("/", (req, res) => res.send("01CS Bot AI ilə işləyir ✅"));
 
-app.listen(CONFIG.PORT, () => console.log(`🚀 Server port ${CONFIG.PORT}-də başladı`));
+app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
