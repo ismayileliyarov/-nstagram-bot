@@ -11,95 +11,89 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
 };
 
+// ─── Təkrar cavabı önləmək üçün işlənmiş ID-lər ─────────────────
+const processed = new Set();
+
 // ─── Şərhin cavablanmalı olub olmadığını yoxla ───────────────────
 function shouldReply(text) {
   if (!text) return false;
   const t = text.toLowerCase().trim();
-
-  // Yalnız emoji və ya işarə olan şərhlər — keç
-  const emojiOnly = /^[\p{Emoji}\s!?.❤️👍🔥💯✅⭐]+$/u.test(t);
+  if (t.replace(/\s/g, "").length < 3) return false;
+  const emojiOnly = /^[\p{Emoji}\s!?.❤️👍🔥💯✅⭐🙏]+$/u.test(t);
   if (emojiOnly) return false;
 
-  // Çox qısa (3 hərfdən az) — keç
-  if (t.replace(/\s/g, "").length < 3) return false;
-
-  // Cavab verilməli açar sözlər
   const triggers = [
     "salam", "hello", "hi", "hey",
     "məlumat", "melumat", "bilgi", "info",
     "qiymət", "qiymet", "nədir", "nedir",
     "necə", "nece", "nə vaxt", "ne vaxt",
     "sifariş", "siparis", "sifaris",
-    "hazırlayırsınız", "hazırlayırsıniz",
-    "xidmət", "xidmet", "sayt", "vebsayt", "website",
+    "sayt", "vebsayt", "website", "web",
     "tətbiq", "tetbiq", "mobil", "app",
     "erp", "crm", "sistem", "avtomatlaşdırma",
     "seo", "nömrə", "nomre", "əlaqə", "elaqe",
     "müddət", "muddet", "nə qədər", "ne qeder",
     "ödəniş", "odenis", "kömək", "komek",
-    "maraqlanıram", "maraqlanırsınız", "maraqlıdır",
-    "bəli", "beli", "istəyirəm", "isteyirem",
-    "?", "yardım", "yardim", "dəstək", "destek"
+    "maraqlanıram", "maraqlıdır",
+    "istəyirəm", "isteyirem",
+    "bəli", "beli", "yardım", "yardim",
+    "dəstək", "destek", "xidmət", "xidmet",
+    "hazırlayın", "hazırlayırsınız", "?",
   ];
 
   return triggers.some(kw => t.includes(kw));
 }
 
 // ─── System prompt ───────────────────────────────────────────────
-const SYSTEM_PROMPT = `Sən 01 Code Studio şirkətinin Instagram köməkçi botusun. Adın "01 Bot"-dur.
+const SYSTEM_PROMPT = `Sən 01 Code Studio-nun Instagram mesaj botusun. Adın "01 Bot"-dur.
 
-Şirkət haqqında:
+ŞİRKƏT MƏLUMATI:
 - Ad: 01 Code Studio
-- Vebsayt: www.01cs.site
-- Instagram: @01cs.az
-- WhatsApp / Telefon: +994 10 717 20 34
-- Email: info@01cs.site | help@01cs.site
-- İş saatları: 7/24 (rəqəmsal müraciətlər)
+- Vebsayt: www.01cs.site | Instagram: @01cs.az
+- WhatsApp: +994 10 717 20 34
+- Email: info@01cs.site
+- Dəstək: 7/24
 
-Xidmətlər və təxmini qiymətlər:
-1. Vizit / Korporativ Vebsayt — 250-700 AZN (rəqabətçi bazarda ucuz)
-2. E-ticarət / Online Mağaza (ödəniş sistemli) — 700-1800 AZN
-3. Fərdi ERP / CRM / Avtomatlaşdırma — 1200 AZN-dən
-4. Mobil Tətbiq (iOS / Android) — 1800 AZN-dən
-5. SEO Optimizasiyası — layihəyə görə fərdi
-6. Texniki Dəstək və İnteqrasiya — fərdi
+XİDMƏTLƏR VƏ QİYMƏTLƏR:
+- Vizit/Korporativ Sayt: 250-700 AZN
+- E-ticarət/Online Mağaza: 700-1800 AZN
+- ERP/CRM/Avtomatlaşdırma: 1200 AZN-dən
+- Mobil Tətbiq (iOS/Android): 1800 AZN-dən
+- SEO Optimizasiyası: fərdi qiymət
+- Texniki Dəstək/İnteqrasiya: fərdi qiymət
 
-Vacib: Qiymətlər müştərinin tələbinə, funksionallığa və mürəkkəbliyə görə dəyişir. Dəqiq qiymət üçün müştəriləri mütləq WhatsApp-a yönləndir.
+Qiymətlər tələbə görə dəyişir. Dəqiq qiymət üçün mütləq WhatsApp-a yönləndir.
 
-Tez-tez soruşulan suallar:
-- Müddət? → Sadə sayt 5-10 iş günü, e-ticarət / ERP 3-6 həftə
-- Telefonlarda görünür? → Bəli, bütün layihələr 100% responsivdir
-- Ödəniş sistemi qoşmaq olar? → Bəli, yerli və beynəlxalq ödəniş sistemləri
-- Sonradan dəstək var? → Bəli, müqaviləyə görə pulsuz texniki dəstək
-- Köhnə saytı yeniləyə bilərsiniz? → Bəli, tam yeniləmə xidməti var
+TƏZ-TEZ SUALLAR:
+- Müddət? → Sadə sayt 5-10 iş günü, böyük layihə 3-6 həftə
+- Telefonlarda görünür? → Bəli, 100% responsiv
+- Ödəniş sistemi? → Bəli, yerli və beynəlxalq sistemlər qoşulur
+- Sonradan dəstək? → Bəli, müqaviləyə görə pulsuz texniki dəstək
+- Köhnə sayt yenilənir? → Bəli, tam yeniləmə xidməti var
 
-Üslub qaydaları:
-- Azərbaycan dilində yaz, təbii və dostcasına ol
-- Bürokratik deyil, insan kimi danış
-- Cavablar qısa olsun — 2-3 cümlə (DM-də uzun cavab veriləcək)
-- Emoji az istifadə et, ancaq yerli olsun
-- Müştərini mütləq DM-ə dəvət et
-- Hər cavabın sonunda WhatsApp nömrəsini təklif et: +994 10 717 20 34
-
-Nə etmə:
-- Qiyməti dəqiq söyləmə, "layihəyə görə dəyişir" de
-- "Bizim şirkət", "biz" kimi formal ifadələrdən çox istifadə etmə
-- Eyni cümləni iki dəfə yazma`;
+ÜSLUB QAYDALARI:
+- Azərbaycan dilində, təbii və qısa cavab ver (2-3 cümlə)
+- Heç vaxt uydurma məlumat yazma, bilmirsənsə WhatsApp-a yönləndir
+- "Çox sevdiyimiz", "hörmətli" kimi qəliz ifadələr işlətmə
+- Sadə, dostcasına danış
+- Hər cavabın sonunda müştərini ya DM-ə, ya WhatsApp-a yönləndir
+- Emoji çox az işlət`;
 
 // ─── Groq ilə cavab yarat ────────────────────────────────────────
 async function generateReply(userMessage, context = "comment") {
-  const contextNote = context === "dm"
-    ? "Bu müştərinin DM mesajıdır. Ətraflı cavab ver, kömək et, lazım olsa WhatsApp-a yönləndir."
-    : "Bu Instagram şərhidir. Qısa, dəvətkar cavab ver, ətraflı məlumat üçün DM-ə çağır.";
+  const note = context === "dm"
+    ? "Müştəri DM-dən yazıb. Ətraflı cavab ver, lazım olsa WhatsApp-a yönləndir."
+    : "Müştəri şərh yazıb. Qısa, dəvətkar cavab ver, ətraflı məlumat üçün DM-ə çağır.";
 
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       model: "llama-3.1-8b-instant",
-      max_tokens: 200,
+      max_tokens: 180,
+      temperature: 0.5,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `${contextNote}\n\nMüştəri mesajı: "${userMessage}"` },
+        { role: "user", content: `${note}\n\nMesaj: "${userMessage}"` },
       ],
     },
     {
@@ -113,7 +107,7 @@ async function generateReply(userMessage, context = "comment") {
   return response.data.choices[0].message.content.trim();
 }
 
-// ─── Şərhə cavab yaz (public comment reply) ─────────────────────
+// ─── Şərhə cavab yaz ─────────────────────────────────────────────
 async function replyToComment(commentId, message) {
   await axios.post(
     `https://graph.instagram.com/v21.0/${commentId}/replies`,
@@ -122,31 +116,25 @@ async function replyToComment(commentId, message) {
   );
 }
 
-// ─── DM göndər (private reply) ──────────────────────────────────
+// ─── DM göndər (şərhdən) ─────────────────────────────────────────
 async function sendDM(commentId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
-    {
-      recipient: { comment_id: commentId },
-      message: { text: message },
-    },
+    { recipient: { comment_id: commentId }, message: { text: message } },
     { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
   );
 }
 
-// ─── DM cavabı göndər (conversation reply) ──────────────────────
+// ─── DM cavabı göndər ────────────────────────────────────────────
 async function replyToDM(recipientId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
-    {
-      recipient: { id: recipientId },
-      message: { text: message },
-    },
+    { recipient: { id: recipientId }, message: { text: message } },
     { params: { access_token: CONFIG.IG_ACCESS_TOKEN } }
   );
 }
 
-// ─── Webhook Verification ────────────────────────────────────────
+// ─── Webhook Verification ─────────────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -159,7 +147,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ─── Webhook Events ──────────────────────────────────────────────
+// ─── Webhook Events ───────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -168,7 +156,8 @@ app.post("/webhook", async (req, res) => {
     if (body.object !== "instagram") return;
 
     for (const entry of body.entry || []) {
-      // ── Şərh hadisəsi ──
+
+      // ── Şərh hadisəsi ──────────────────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
 
@@ -177,57 +166,66 @@ app.post("/webhook", async (req, res) => {
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
 
+        // Təkrar işləməyi önlə
+        if (processed.has(commentId)) {
+          console.log(`⏭️ Artıq işlənib: ${commentId}`);
+          continue;
+        }
+        processed.add(commentId);
+        setTimeout(() => processed.delete(commentId), 60000);
+
         console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
 
         if (!shouldReply(commentText)) {
-          console.log(`⏭️ Keçildi (cavab verilməyəcək): "${commentText}"`);
+          console.log(`⏭️ Filtr: cavab verilmədi`);
           continue;
         }
 
-        const reply = await generateReply(commentText, "comment");
-        console.log(`🤖 Cavab: ${reply}`);
-
         // Şərhə cavab yaz
         try {
-          await replyToComment(commentId, reply);
-          console.log(`💬 Şərhə cavab yazıldı → @${fromUser}`);
+          const commentReply = await generateReply(commentText, "comment");
+          await replyToComment(commentId, commentReply);
+          console.log(`💬 Şərhə cavab: ${commentReply}`);
         } catch (e) {
-          console.log("⚠️ Şərh cavabı yazılmadı:", e.response?.data?.error?.message);
+          console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message);
         }
 
         // DM göndər
         try {
-          const dmText = `Salam! 👋 Şərhinizi gördük. Sizə ətraflı məlumat vermək üçün buradayıq — nə bilmək istəyirsiniz? Həmçinin birbaşa WhatsApp-dan da əlaqə saxlaya bilərsiniz: +994 10 717 20 34`;
+          const dmText = `Salam! 👋 Şərhinizi gördük — sizi DM-də qarşılamaqdan məmnunuq. Nə bilmək istəyirsiniz? Ətraflı məlumat, qiymət və ya digər suallar üçün buradayıq.\n\n📲 Tez cavab üçün WhatsApp: +994 10 717 20 34`;
           await sendDM(commentId, dmText);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } catch (e) {
-          console.log("⚠️ DM göndərilmədi:", e.response?.data?.error?.message);
+          console.log("⚠️ DM xətası:", e.response?.data?.error?.message);
         }
       }
 
-      // ── DM hadisəsi (müştəri DM-ə cavab yazanda) ──
+      // ── DM söhbəti ─────────────────────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
+        const msgId = msg.message?.mid;
 
-        if (!text || !senderId) continue;
+        if (!text || !senderId || !msgId) continue;
+        if (senderId === entry.id) continue; // öz mesajımız
 
-        // Öz mesajlarımızı keç
-        const myId = entry.id;
-        if (senderId === myId) continue;
+        if (processed.has(msgId)) {
+          console.log(`⏭️ DM artıq işlənib: ${msgId}`);
+          continue;
+        }
+        processed.add(msgId);
+        setTimeout(() => processed.delete(msgId), 60000);
 
-        console.log(`💬 DM alındı: "${text}"`);
+        console.log(`💬 DM: "${text}"`);
 
         const reply = await generateReply(text, "dm");
-        console.log(`🤖 DM cavabı: ${reply}`);
 
-        // İlişdiyini hiss etsə WhatsApp yönləndirmə əlavə et
-        const confused = ["bilmirəm", "anlayammadım", "dəqiq deyə bilmərəm", "ətraflı"].some(w =>
+        // İlişdisə WhatsApp əlavə et
+        const needsHuman = ["bilmirəm", "dəqiq deyə", "ətraflı məlumat"].some(w =>
           reply.toLowerCase().includes(w)
         );
-
-        const finalReply = confused
-          ? `${reply}\n\n📲 Daha sürətli kömək üçün WhatsApp: +994 10 717 20 34`
+        const finalReply = needsHuman
+          ? `${reply}\n\n📲 Canlı dəstək üçün WhatsApp: +994 10 717 20 34`
           : reply;
 
         await replyToDM(senderId, finalReply);
@@ -239,11 +237,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ─── Health check ────────────────────────────────────────────────
-app.get("/", (req, res) => {
-  res.send("01CS Instagram Bot işləyir ✅");
-});
+// ─── Health check ──────────────────────────────────────────────────
+app.get("/", (req, res) => res.send("01CS Instagram Bot işləyir ✅"));
 
-app.listen(CONFIG.PORT, () => {
-  console.log(`🚀 Server port ${CONFIG.PORT}-də başladı`);
-});
+app.listen(CONFIG.PORT, () => console.log(`🚀 Server port ${CONFIG.PORT}-də başladı`));
