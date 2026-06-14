@@ -1,6 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-const fs = require("fs");
 const app = express();
 
 app.use(express.json());
@@ -8,37 +7,46 @@ app.use(express.json());
 const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
-  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  GROQ_API_KEY: process.env.GROQ_API_KEY, // istifadə edilmir, qalır
   PORT: process.env.PORT || 3000,
 };
 
-// ─── İşlənmiş ID-lər (təkrar önləmə) ────────────────────────────
-const PROCESSED_FILE = "/tmp/processed_ids.json";
-
-function loadProcessed() {
-  try {
-    const data = JSON.parse(fs.readFileSync(PROCESSED_FILE, "utf8"));
-    const now = Date.now();
-    const fresh = {};
-    for (const [id, ts] of Object.entries(data)) {
-      if (now - ts < 600000) fresh[id] = ts;
-    }
-    return fresh;
-  } catch { return {}; }
-}
+// ─── Yaddaşda işlənmiş ID-lər (race condition yoxdur) ────────────
+const processedIds = new Map(); // key: id, value: timestamp
 
 function isProcessed(id) {
-  const data = loadProcessed();
-  if (data[id]) return true;
-  data[id] = Date.now();
-  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(data));
+  const now = Date.now();
+  if (processedIds.has(id)) {
+    const ts = processedIds.get(id);
+    if (now - ts < 600000) return true; // 10 dəqiqə
+    else processedIds.delete(id);
+  }
+  processedIds.set(id, now);
   return false;
 }
 
-// ─── İstifadəçi vəziyyətləri (menyu) ────────────────────────────
-const userStates = {};
+// ─── İstifadəçi vəziyyətləri (vaxtaşımı ilə) ────────────────────
+const userStates = new Map(); // key: userId, value: { state, lastActive }
+const STATE_TIMEOUT = 30 * 60 * 1000; // 30 dəqiqə
 
-// ─── Menyu məzmunu ───────────────────────────────────────────────
+function getUserState(userId) {
+  const now = Date.now();
+  const record = userStates.get(userId);
+  if (!record) return "main";
+  if (now - record.lastActive > STATE_TIMEOUT) {
+    userStates.delete(userId);
+    return "main";
+  }
+  record.lastActive = now;
+  userStates.set(userId, record);
+  return record.state;
+}
+
+function setUserState(userId, state) {
+  userStates.set(userId, { state, lastActive: Date.now() });
+}
+
+// ─── Menyu məzmunu (tamamilə orijinal, dəyişməyib) ──────────────
 const MENUS = {
   main: `Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋
 
@@ -174,56 +182,56 @@ Daha dəqiq qiymət təklifi üçün:
 👉 https://01cs.site/teklif-al.html
 
 0️⃣ Xidmətlər menyusuna qayıt`,
-
-  unknown: `Üzr istəyirik, bu seçimi anlamadım. 😊
-
-Zəhmət olmasa aşağıdan seçin:
-
-1️⃣ Xidmətlərimiz
-2️⃣ Haqqımızda
-3️⃣ Əlaqə`,
 };
 
-// ─── Menyu cavabı ─────────────────────────────────────────────────
+// ─── Menyu cavabı (düzəldilmiş) ─────────────────────────────────
 function getMenuResponse(userId, text) {
   const t = text.trim().toLowerCase();
-  const state = userStates[userId] || "main";
+  let state = getUserState(userId);
+
+  // Ümumi ana menyu komandaları
+  const mainKeywords = ["0", "menu", "salam", "start", "hi", "main", "ana menyu"];
+  if (mainKeywords.includes(t)) {
+    setUserState(userId, "main");
+    return MENUS.main;
+  }
+
+  // Əgər state yoxdursa, main qəbul et
+  if (!state) state = "main";
 
   // Ana menyu
-  if (t === "0" && state === "services_sub") {
-    userStates[userId] = "main";
-    return MENUS.main;
-  }
-  if (t === "0") {
-    userStates[userId] = "main";
-    return MENUS.main;
-  }
-
-  // İlk dəfə gəlir və ya ana menyudadır
   if (state === "main") {
-    if (t === "1") { userStates[userId] = "services"; return MENUS.services; }
-    if (t === "2") { userStates[userId] = "about"; return MENUS.about; }
-    if (t === "3") { userStates[userId] = "contact"; return MENUS.contact; }
-    // İlk mesajda istənilən sözdə ana menyunu göstər
-    userStates[userId] = "main";
+    if (t === "1") { setUserState(userId, "services"); return MENUS.services; }
+    if (t === "2") { setUserState(userId, "about"); return MENUS.about; }
+    if (t === "3") { setUserState(userId, "contact"); return MENUS.contact; }
+    // Tanınmayan girişdə ana menyunu göstər
     return MENUS.main;
   }
 
-  // Xidmətlər alt menyusu
+  // Xidmətlər menyusu
   if (state === "services") {
-    if (t === "1") { userStates[userId] = "services_sub"; return MENUS.website; }
-    if (t === "2") { userStates[userId] = "services_sub"; return MENUS.mobile; }
-    if (t === "3") { userStates[userId] = "services_sub"; return MENUS.erp; }
-    if (t === "4") { userStates[userId] = "services_sub"; return MENUS.seo; }
-    if (t === "5") { userStates[userId] = "services_sub"; return MENUS.support; }
+    if (t === "1") { setUserState(userId, "services_sub"); return MENUS.website; }
+    if (t === "2") { setUserState(userId, "services_sub"); return MENUS.mobile; }
+    if (t === "3") { setUserState(userId, "services_sub"); return MENUS.erp; }
+    if (t === "4") { setUserState(userId, "services_sub"); return MENUS.seo; }
+    if (t === "5") { setUserState(userId, "services_sub"); return MENUS.support; }
+    if (t === "0") { setUserState(userId, "main"); return MENUS.main; }
+    // Tanınmayan -> yenə services menyusunu göstər
     return MENUS.services;
   }
 
-  // Digər vəziyyətlərdə
-  return MENUS.unknown;
+  // Əgər services_sub və ya hər hansı digər dərin state – 0 ilə mainə qayıt
+  if (t === "0") {
+    setUserState(userId, "main");
+    return MENUS.main;
+  }
+
+  // Əgər bura gəlib çıxıbsa (heç bir şərtə düşməyib) – ana menyu
+  setUserState(userId, "main");
+  return MENUS.main;
 }
 
-// ─── DM göndər ───────────────────────────────────────────────────
+// ─── Instagram API köməkçiləri ───────────────────────────────────
 async function sendDM(commentId, message) {
   await axios.post(
     "https://graph.instagram.com/v21.0/me/messages",
@@ -248,7 +256,7 @@ async function replyToComment(commentId, message) {
   );
 }
 
-// ─── Webhook Verification ─────────────────────────────────────────
+// ─── Webhook ─────────────────────────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -261,8 +269,8 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ─── Webhook Events ───────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
+  // Dərhal 200 qaytar – Instagram təkrar göndərməsin
   res.sendStatus(200);
 
   try {
@@ -272,7 +280,7 @@ app.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       const myId = entry.id;
 
-      // ── Şərh ──────────────────────────────────────────────────
+      // ─── Şərh emalı ──────────────────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
 
@@ -288,7 +296,7 @@ app.post("/webhook", async (req, res) => {
 
         console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
 
-        // Şərhə sabit cavab
+        // Şərhə bir dəfə cavab
         try {
           await replyToComment(commentId, "Salam, şərhin DM-də ətraflı cavablandırıldı ✔️");
           console.log(`💬 Şərhə cavab yazıldı`);
@@ -301,7 +309,6 @@ app.post("/webhook", async (req, res) => {
           await sendDM(commentId, MENUS.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } catch (e) {
-          // DM göndərmək mümkün deyilsə şərhi dəyiş
           console.log("⚠️ DM xətası:", e.response?.data?.error?.message);
           try {
             await replyToComment(
@@ -312,7 +319,7 @@ app.post("/webhook", async (req, res) => {
         }
       }
 
-      // ── DM söhbəti ────────────────────────────────────────────
+      // ─── DM söhbəti ──────────────────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
