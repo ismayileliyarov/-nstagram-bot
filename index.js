@@ -473,4 +473,59 @@ app.get("/analytics", isAdmin, (req, res) => {
   res.json(data.slice(-200));
 });
 app.get("/", (req, res) => res.send("01CS Bot (tam funksiyalı) işləyir ✅"));
+// ========== ADMIN PANEL ROUTELARI ==========
+const session = require("express-session");
+
+app.use(session({
+  secret: "admin_secret_key",
+  resave: false,
+  saveUninitialized: true
+}));
+
+function isAdmin(req, res, next) {
+  if (req.session.admin) return next();
+  res.redirect("/admin/login");
+}
+
+app.get("/admin/login", (req, res) => {
+  res.send(`
+    <html>
+      <body style="font-family:sans-serif;text-align:center;margin-top:50px">
+        <h2>Admin Girişi</h2>
+        <form method="post" action="/admin/login">
+          <input type="password" name="pwd" placeholder="Şifrə" />
+          <button type="submit">Daxil ol</button>
+        </form>
+      </body>
+    </html>
+  `);
+});
+
+app.post("/admin/login", (req, res) => {
+  const adminPass = process.env.ADMIN_PASSWORD || "admin123";
+  if (req.body.pwd === adminPass) {
+    req.session.admin = true;
+    res.redirect("/admin/dashboard");
+  } else {
+    res.send("Şifrə yanlışdır. <a href='/admin/login'>Geri</a>");
+  }
+});
+
+app.get("/admin/dashboard", isAdmin, (req, res) => {
+  res.send(`
+    <html>
+      <head><meta charset="UTF-8"><title>Admin Panel</title></head>
+      <body style="font-family:sans-serif;padding:20px">
+        <h1>📊 Admin Panel</h1>
+        <p>Bot işləyir ✅</p>
+        <p><a href="/admin/logout">Çıxış</a></p>
+      </body>
+    </html>
+  `);
+});
+
+app.get("/admin/logout", (req, res) => {
+  req.session.destroy();
+  res.redirect("/admin/login");
+});
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
