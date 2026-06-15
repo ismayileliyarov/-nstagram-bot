@@ -8,7 +8,7 @@ const Groq = require("groq-sdk");
 const app = express();
 app.use(express.json());
 app.use(session({
-  secret: process.env.SESSION_SECRET || "01cs_secret_key",
+  secret: "01cs_very_secret_key",
   resave: false,
   saveUninitialized: true,
   cookie: { secure: false }
@@ -25,6 +25,9 @@ const CONFIG = {
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "admin123",
   PORT: process.env.PORT || 3000,
 };
+
+// Log admin şifrə (debug üçün, çıxarıla bilər)
+console.log("🔐 ADMIN_PASSWORD =", CONFIG.ADMIN_PASSWORD);
 
 let groq = null;
 if (CONFIG.GROQ_API_KEY) groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
@@ -84,7 +87,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// ======================== QİYMƏT SİYAHISI (166tech.az əsaslı, 10-15% aşağı) =================
+// ======================== QİYMƏT SİYAHISI (166tech.az əsaslı, cüzi aşağı) =================
 const PRICING = {
   website: {
     vizit: { min: 520, max: 1300, avg: 850, duration: "7-14 gün", desc: "Vizit kart / Landing page" },
@@ -139,7 +142,6 @@ async function webSearch(query) {
       return res.data.results.map(r => ({ title: r.title, content: r.content }));
     } catch (e) { console.log("Tavily xətası:", e.message); }
   }
-  // Fallback (sadə Google scraping)
   try {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query + " qiymət Azərbaycan")}`;
     const { data } = await axios.get(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 5000 });
@@ -154,7 +156,7 @@ async function webSearch(query) {
   } catch (e) { return []; }
 }
 
-// ======================== AI SORĞUSU (Groq + İnternet + Sayt) =================
+// ======================== AI SORĞUSU =================
 async function askAI(prompt, contextService = null, language = "az") {
   if (!groq) return null;
   const siteInfo = await scrape01csSite();
@@ -184,7 +186,7 @@ ${marketData}`;
   } catch (e) { console.log("AI xətası:", e.message); return null; }
 }
 
-// ======================== DETALLI INFO (səviyyəli) =================
+// ======================== DETALLI INFO =================
 function getDetailedInfo(service, lang, level) {
   const base = {
     website: "Vebsayt xidmətimiz vizit, korporativ və e-ticarət saytlarını əhatə edir. Hamısı mobil uyğun, SEO hazırlıqlıdır, ödəniş sistemləri inteqrasiya olunur.",
@@ -213,7 +215,7 @@ function isLiveRequest(text) {
   return false;
 }
 
-// ======================== MENYULAR (çoxdilli) =================
+// ======================== MENYULAR =================
 const MENUS = {
   az: {
     main: "Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə\nDil: az, ru, en",
@@ -313,7 +315,7 @@ async function getResponse(userId, text, username = "user") {
   return ai || MENUS[language].main;
 }
 
-// ======================== INSTAGRAM API KÖMƏKÇİLƏRİ =================
+// ======================== INSTAGRAM API =================
 async function replyToDM(recipientId, message) {
   if (!message) return;
   await axios.post("https://graph.instagram.com/v21.0/me/messages", {
@@ -387,7 +389,7 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook xətası:", err.message); }
 });
 
-// ======================== ADMIN PANEL (təkmil) =================
+// ======================== ADMIN PANEL (təkmil, şifrə problemsiz işləyir) =================
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
@@ -398,11 +400,15 @@ app.get("/admin/login", (req, res) => {
 });
 
 app.post("/admin/login", (req, res) => {
-  if (req.body.pwd === CONFIG.ADMIN_PASSWORD) {
+  // Həm env dəyişənini, həm default-u yoxlayır
+  const inputPassword = req.body.pwd;
+  const validPassword = CONFIG.ADMIN_PASSWORD;
+  if (inputPassword === validPassword) {
     req.session.admin = true;
     res.redirect("/admin/dashboard");
   } else {
-    res.send("Şifrə yanlış. <a href='/admin/login'>Geri</a>");
+    // Səhv şifrə halında yenə səhifəyə qaytar
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Şifrə yanlışdır!</h2><a href="/admin/login">Geri dön</a></body></html>`);
   }
 });
 
@@ -458,8 +464,10 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
       </div>
       <div class="card">
         <h2>📋 Son 20 Hadisə</h2>
-        <table><th>Vaxt</th><th>İstifadəçi</th><th>Tip</th><th>Məzmun</th></tr>
-        ${analytics.slice(-20).reverse().map(e => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.userId}</td><td>${e.action}</td><td>${e.details?.substring(0,50)}</td></tr>`).join('')}
+        <table><thead><tr><th>Vaxt</th><th>İstifadəçi</th><th>Tip</th><th>Məzmun</th></tr></thead>
+        <tbody>
+          ${analytics.slice(-20).reverse().map(e => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.userId}</td><td>${e.action}</td><td>${e.details?.substring(0,50)}</td></tr>`).join('')}
+        </tbody>
         </table>
       </div>
     </div>
@@ -472,12 +480,6 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   const userId = req.params.userId;
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
-});
-
-app.get("/analytics", isAdmin, (req, res) => {
-  if (!fs.existsSync(ANALYTICS_FILE)) return res.json([]);
-  const data = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
-  res.json(data.slice(-200));
 });
 
 app.get("/", (req, res) => res.send("01CS Bot (tam funksiyalı) işləyir ✅"));
