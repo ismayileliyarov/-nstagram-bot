@@ -3,7 +3,7 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const session = require("express-session");
 const fs = require("fs");
-const Groq = require("groq-sdk");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(express.json());
@@ -18,15 +18,17 @@ app.use(session({
 const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
-  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
   PORT: process.env.PORT || 3000,
 };
 
-let groq = null;
-if (CONFIG.GROQ_API_KEY) groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+let genAI = null;
+if (CONFIG.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
+}
 
 // ======================== ANALİTİKA ============================
 const ANALYTICS_FILE = "/tmp/analytics.json";
@@ -43,12 +45,11 @@ function logAnalytics(userId, action, details = "") {
 // ======================== TELEGRAM BİLDİRİŞİ ===================
 async function sendTelegramNotification(userId, userMessage, username = "istifadəçi") {
   if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
-  const text = `🆘 *CANLI DƏSTƏK TƏLƏBİ*\n\n👤 İstifadəçi: @${username}\n🆔 ID: ${userId}\n💬 Mesaj: ${userMessage.substring(0, 200)}`;
+  const text = `🆘 CANLI DƏSTƏK TƏLƏBİ\n\nİstifadəçi: @${username}\nID: ${userId}\nMesaj: ${userMessage.substring(0, 200)}`;
   try {
     await axios.post(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: CONFIG.TELEGRAM_CHAT_ID,
       text,
-      parse_mode: "Markdown",
     });
   } catch (e) { console.log("Telegram xətası:", e.message); }
 }
@@ -83,229 +84,229 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// ======================== ƏTRAFLI XİDMƏT TƏSVİRLƏRİ =================
+// ======================== ƏTRAFLI XİDMƏT TƏSVİRLƏRİ (markdownsuz) =================
 const SERVICE_DETAILS = {
   website: {
-    az: `💻 **Vebsayt Hazırlanması**
+    az: `Vebsayt Hazirlanmasi
 
-📌 **Xidmət növləri:**
+Xidmet növləri:
 • Vizit kart / Landing page – 520-1300 AZN (7-14 gün)
 • Korporativ sayt – 1300-4400 AZN (30-60 gün)
-• E-ticarət saytı – 2600-13000 AZN (60-120 gün)
+• E-ticarət sayti – 2600-13000 AZN (60-120 gün)
 
-✨ **Xüsusiyyətlər:**
-• 100% mobil uyğun (responsive)
-• SEO hazırlığı (Google-da yerləşmək üçün)
-• İstənilən ödəniş sistemi inteqrasiyası
-• Admin panel – saytı özünüz idarə edə bilərsiniz
+Xüsusiyyətlər:
+• 100% mobil uygun (responsive)
+• SEO hazirliği (Google-da yerleşmek üçün)
+• İstenilen ödəniş sistemi inteqrasiyası
+• Admin panel – sayti özünüz idarə edə bilərsiniz
 • Layihə bitdikdən sonra 1 ay pulsuz texniki dəstək
 
-📊 **Əlavə:**
-• Domain və hosting qeydiyyatında kömək
-• Google Analytics və Search Console qurulumu
-• Sosial şəbəkə inteqrasiyası
+Əlavə:
+• Domain ve hosting qeydiyyatinda kömək
+• Google Analytics ve Search Console qurulumu
+• Sosial şəbəkə inteqrasiyasi
 
-🔗 Dəqiq təklif üçün: https://01cs.site/teklif-al.html
+Dəqiq təklif üçün: https://01cs.site/teklif-al.html
 
-0️⃣ Xidmətlərə qayıt`,
-    ru: `💻 **Разработка веб-сайтов**
+0 Xidmətlərə qayit`,
+    ru: `Разработка веб-сайтов
 
-📌 **Типы услуг:**
+Типы услуг:
 • Визитка / Landing page – 520-1300 AZN (7-14 дней)
 • Корпоративный сайт – 1300-4400 AZN (30-60 дней)
 • Интернет-магазин – 2600-13000 AZN (60-120 дней)
 
-✨ **Особенности:**
+Особенности:
 • Адаптивный дизайн
 • SEO-подготовка
 • Интеграция платёжных систем
 • Админ-панель
 • 1 месяц бесплатной техподдержки
 
-🔗 Точная цена: https://01cs.site/teklif-al.html
+Точная цена: https://01cs.site/teklif-al.html
 
-0️⃣ Назад к услугам`,
-    en: `💻 **Website Development**
+0 Назад к услугам`,
+    en: `Website Development
 
-📌 **Service types:**
+Service types:
 • Business card / Landing page – 520-1300 AZN (7-14 days)
 • Corporate website – 1300-4400 AZN (30-60 days)
 • E-commerce website – 2600-13000 AZN (60-120 days)
 
-✨ **Features:**
+Features:
 • Responsive design
 • SEO ready
 • Payment system integration
 • Admin panel
 • 1 month free technical support
 
-🔗 Detailed offer: https://01cs.site/teklif-al.html
+Detailed offer: https://01cs.site/teklif-al.html
 
-0️⃣ Back to Services`
+0 Back to Services`
   },
   mobile: {
-    az: `📱 **Mobil Tətbiq Hazırlanması**
+    az: `Mobil Tətbiq Hazirlanmasi
 
-📌 **Səviyyələr:**
+Səviyyələr:
 • Sadə tətbiq (kataloq, informasiya) – 2600-6000 AZN (30-45 gün)
 • Orta səviyyəli (sifariş, ödəniş) – 6000-15500 AZN (60-90 gün)
 • Mürəkkəb tətbiq (real-time, GPS, chat) – 13000-43000 AZN (90-180 gün)
 
-✨ **Xüsusiyyətlər:**
-• Native iOS və Android (və ya cross-platform)
+Xüsusiyyətlər:
+• Native iOS ve Android (ve ya cross-platform)
 • Push bildirişlər
 • Ödəniş sistemləri (Apple Pay, Google Pay, kart)
-• Chat, xəritə, GPS funksiyaları
+• Chat, xəritə, GPS funksiyalari
 • Admin panel (istifadəçilər, məzmun, statistikalar)
-• Server və API arxitekturası
+• Server ve API arxitekturası
 
-🔗 Dəqiq təklif üçün: https://01cs.site/teklif-al.html
+Dəqiq təklif üçün: https://01cs.site/teklif-al.html
 
-0️⃣ Xidmətlərə qayıt`,
-    ru: `📱 **Разработка мобильных приложений**
+0 Xidmətlərə qayit`,
+    ru: `Разработка мобильных приложений
 
-📌 **Уровни:**
+Уровни:
 • Простое приложение – 2600-6000 AZN (30-45 дней)
 • Среднее (заказы, оплата) – 6000-15500 AZN (60-90 дней)
 • Сложное (real-time, GPS, чат) – 13000-43000 AZN (90-180 дней)
 
-✨ **Особенности:**
+Особенности:
 • Нативные iOS и Android
 • Push-уведомления
 • Платёжные системы
 • Чат, карты, GPS
 • Админ-панель
 
-🔗 Точная цена: https://01cs.site/teklif-al.html
+Точная цена: https://01cs.site/teklif-al.html
 
-0️⃣ Назад к услугам`,
-    en: `📱 **Mobile App Development**
+0 Назад к услугам`,
+    en: `Mobile App Development
 
-📌 **Levels:**
+Levels:
 • Simple app (catalog, info) – 2600-6000 AZN (30-45 days)
 • Medium (orders, payments) – 6000-15500 AZN (60-90 days)
 • Complex (real-time, GPS, chat) – 13000-43000 AZN (90-180 days)
 
-✨ **Features:**
+Features:
 • Native iOS & Android
 • Push notifications
 • Payment systems
 • Chat, maps, GPS
 • Admin panel
 
-🔗 Detailed offer: https://01cs.site/teklif-al.html
+Detailed offer: https://01cs.site/teklif-al.html
 
-0️⃣ Back to Services`
+0 Back to Services`
   },
   erp: {
-    az: `⚙️ **ERP / CRM / Avtomatlaşdırma**
+    az: `ERP / CRM / Avtomatlaşdirma
 
-📌 **Modullar:**
+Modullar:
 • Müştəri idarəsi (CRM)
-• Anbar və satış idarəsi
-• İşçi və əmək haqqı
-• Maliyyə və mühasibat
-• Hesabat analitikası
+• Anbar ve satiş idarəsi
+• İşçi ve əmək haqqi
+• Maliyyə ve mühasibat
+• Hesabat analitikasi
 
-💰 **Qiymət:** 7000-43000 AZN (layihəyə görə)
-⏱ **Müddət:** 3-8 həftə (tam fərdi)
+Qiymət: 7000-43000 AZN (layihəyə görə)
+Müddət: 3-8 həftə (tam fərdi)
 
-✨ **Xüsusiyyətlər:**
+Xüsusiyyətlər:
 • İstənilən API ilə inteqrasiya (bank, ödəniş, kargolar)
-• Real-time məlumat sinxronizasiyası
-• Çoxistifadəçili sistem, rol və icazələr
-• Bulud və ya on-premise quraşdırma
+• Real-time məlumat sinxronizasiyasi
+• Çoxistifadəçili sistem, rol ve icazələr
+• Bulud ve ya on-premise quraşdirma
 • 1 ay pulsuz test dəstəyi
 
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
+Dəqiq təklif: https://01cs.site/teklif-al.html
 
-0️⃣ Xidmətlərə qayıt`,
-    ru: `⚙️ **ERP / CRM / Автоматизация**
+0 Xidmətlərə qayit`,
+    ru: `ERP / CRM / Автоматизация
 
-💰 Цена: 7000-43000 AZN
-⏱ Срок: 3-8 недель
+Цена: 7000-43000 AZN
+Срок: 3-8 недель
 
-✨ **Модули:** управление клиентами, склад, продажи, сотрудники, финансы, отчёты.
-🔗 https://01cs.site/teklif-al.html
+Модули: управление клиентами, склад, продажи, сотрудники, финансы, отчёты.
+https://01cs.site/teklif-al.html
 
-0️⃣ Назад к услугам`,
-    en: `⚙️ **ERP / CRM / Automation**
+0 Назад к услугам`,
+    en: `ERP / CRM / Automation
 
-💰 Price: 7000-43000 AZN
-⏱ Timeline: 3-8 weeks
+Price: 7000-43000 AZN
+Timeline: 3-8 weeks
 
-✨ **Modules:** customer management, warehouse, sales, employees, finance, reports.
-🔗 https://01cs.site/teklif-al.html
+Modules: customer management, warehouse, sales, employees, finance, reports.
+https://01cs.site/teklif-al.html
 
-0️⃣ Back to Services`
+0 Back to Services`
   },
   seo: {
-    az: `🔍 **SEO Optimizasiyası**
+    az: `SEO Optimizasiyasi
 
-📌 **Xidmət daxildir:**
+Xidmet daxildir:
 • Açar söz araşdırması
 • Texniki SEO audit (sayt sürəti, mobil uyğunluq, indeksləşmə)
 • Daxili optimizasiya (meta teqlər, struktur, məzmun)
 • Keyfiyyətli backlinklərin qurulması
 • Aylıq hesabat (rank, trafik, conversion)
 
-💰 **Qiymət:** 450-1800 AZN/ay (layihənin həcminə görə)
-⏱ **Nəticə:** 1-3 ay ərzində Google-da irəliləyiş
+Qiymət: 450-1800 AZN/ay (layihənin həcminə görə)
+Nəticə: 1-3 ay ərzində Google-da irəliləyiş
 
-✨ **Əlavə:** Rəqib təhlili, lokal SEO (Google Maps), e-ticarət SEO
+Əlavə: Rəqib təhlili, lokal SEO (Google Maps), e-ticarət SEO
 
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
+Dəqiq təklif: https://01cs.site/teklif-al.html
 
-0️⃣ Xidmətlərə qayıt`,
-    ru: `🔍 **SEO оптимизация**
+0 Xidmətlərə qayit`,
+    ru: `SEO оптимизация
 
-💰 Цена: 450-1800 AZN/мес
-⏱ Результат: 1-3 месяца
+Цена: 450-1800 AZN/мес
+Результат: 1-3 месяца
 
-✨ **Включено:** анализ ключевых слов, тех. аудит, внутренняя оптимизация, ссылки, отчёты.
-🔗 https://01cs.site/teklif-al.html
+Включено: анализ ключевых слов, тех. аудит, внутренняя оптимизация, ссылки, отчёты.
+https://01cs.site/teklif-al.html
 
-0️⃣ Назад к услугам`,
-    en: `🔍 **SEO Optimization**
+0 Назад к услугам`,
+    en: `SEO Optimization
 
-💰 Price: 450-1800 AZN/month
-⏱ Results: 1-3 months
+Price: 450-1800 AZN/month
+Results: 1-3 months
 
-✨ **Includes:** keyword research, technical audit, on-page optimization, link building, monthly reports.
-🔗 https://01cs.site/teklif-al.html
+Includes: keyword research, technical audit, on-page optimization, link building, monthly reports.
+https://01cs.site/teklif-al.html
 
-0️⃣ Back to Services`
+0 Back to Services`
   },
   support: {
-    az: `🛠️ **Texniki Dəstək**
+    az: `Texniki Dəstək
 
-📌 **Xidmət daxildir:**
+Xidmet daxildir:
 • Mövcud layihənin təhlükəsizlik yeniləmələri
-• Sürət optimizasiyası (sayt/tətbiq)
-• Xəta düzəlişləri və bug fix
-• Yeni funksiyaların əlavə edilməsi (saatlıq)
+• Sürət optimizasiyasi (sayt/tətbiq)
+• Xəta düzəlişləri ve bug fix
+• Yeni funksiyalarin əlavə edilməsi (saatliq)
 • 7/24 onlayn dəstək (chat, email)
 
-💰 **Qiymət:** 250-1500 AZN/saat (və ya aylıq abunə müqaviləsi)
-⏱ **Cavab müddəti:** Kritik xətalar üçün 1-2 saat
+Qiymət: 250-1500 AZN/saat (ve ya aylıq abunə müqaviləsi)
+Cavab müddəti: Kritik xətalar üçün 1-2 saat
 
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
+Dəqiq təklif: https://01cs.site/teklif-al.html
 
-0️⃣ Xidmətlərə qayıt`,
-    ru: `🛠️ **Техническая поддержка**
+0 Xidmətlərə qayit`,
+    ru: `Техническая поддержка
 
-💰 Цена: 250-1500 AZN/час (или абонемент)
-✨ Обновления безопасности, оптимизация скорости, исправление ошибок, новые функции. 24/7.
-🔗 https://01cs.site/teklif-al.html
+Цена: 250-1500 AZN/час (или абонемент)
+Обновления безопасности, оптимизация скорости, исправление ошибок, новые функции. 24/7.
+https://01cs.site/teklif-al.html
 
-0️⃣ Назад к услугам`,
-    en: `🛠️ **Technical Support**
+0 Назад к услугам`,
+    en: `Technical Support
 
-💰 Price: 250-1500 AZN/hour (or monthly subscription)
-✨ Security updates, speed optimization, bug fixes, new features. 24/7 support.
-🔗 https://01cs.site/teklif-al.html
+Price: 250-1500 AZN/hour (or monthly subscription)
+Security updates, speed optimization, bug fixes, new features. 24/7 support.
+https://01cs.site/teklif-al.html
 
-0️⃣ Back to Services`
+0 Back to Services`
   }
 };
 
@@ -323,7 +324,7 @@ async function scrape01csSite() {
   } catch (e) { return null; }
 }
 
-// ======================== İNTERNET AXTARIŞ =================
+// ======================== İNTERNET AXTARIŞ (Tavily) =================
 async function webSearch(query) {
   if (CONFIG.TAVILY_API_KEY) {
     try {
@@ -339,62 +340,66 @@ async function webSearch(query) {
   return [];
 }
 
-// ======================== AI SORĞUSU =================
+// ======================== AI SORĞUSU (Google Gemini) =================
 async function askAI(prompt, contextService = null, language = "az") {
-  if (!groq) return null;
+  if (!genAI) return null;
   const siteInfo = await scrape01csSite();
   const webResults = await webSearch(`${contextService || "ümuumi"} sorğu`);
   let marketData = "";
   if (webResults.length) {
-    marketData = "\n\n**Bazar məlumatları:**\n" + webResults.map(r => `- ${r.title}: ${r.content.substring(0, 100)}`).join("\n");
+    marketData = "\n\nBazar məlumatlari:\n" + webResults.map(r => `- ${r.title}: ${r.content.substring(0, 100)}`).join("\n");
   }
-  const langInstruction = language === "az" ? "Cavabı Azərbaycan dilində, 4-5 cümlə ilə ver."
+  const langInstruction = language === "az" ? "Cavabi Azərbaycan dilində, 4-5 cümlə ilə ver."
                           : language === "ru" ? "Ответ дай на русском языке, 4-5 предложений."
                           : "Answer in English, 4-5 sentences.";
   const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. Məlumat: ${siteInfo?.fullText?.substring(0, 600) || "IT xidmətləri şirkəti"}
-Cavab qaydaları: 4-5 cümlə, faydalı, peşəkar. İstifadəçi istənilən təbii sualı verə bilər, ona uyğun cavablandır.
+Cavab qaydalari: 4-5 cümlə, faydali, peşəkar. İstifadəçi istənilən təbii suali verə bilər, ona uyğun cavablandir.
 Şirkətimiz vebsayt, mobil tətbiq, ERP, SEO, texniki dəstək xidmətləri göstərir.
-Qiymət təkliflərində öz qiymət siyahımızdan (166tech.az-dan 10-15% aşağı) istifadə et.
-Əgər sual şirkət işi ilə əlaqəli deyilsə, cavabında "Sizi canlı dəstəyə yönləndiririk..." yaz.
-${contextService ? `İstifadəçi hazırda "${contextService}" xidmətinə baxır.` : ""}
+Qiymət təkliflərində öz qiymət siyahimizdan (166tech.az-dan 10-15% aşaği) istifadə et.
+Əgər sual şirkət işi ilə əlaqəli deyilsə, cavabinda "Sizi canli dəstəyə yönləndiririk..." yaz.
+${contextService ? `İstifadəçi hazirda "${contextService}" xidmətinə baxir.` : ""}
 ${langInstruction}
 ${marketData}`;
   try {
-    const response = await groq.chat.completions.create({
-      model: "llama3-70b-8192",
-      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 600,
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const chat = model.startChat({
+      history: [
+        { role: "user", parts: [{ text: systemPrompt }] },
+        { role: "model", parts: [{ text: "Başa düşdüm. Mən köməkçiyəm." }] }
+      ]
     });
-    return response.choices[0].message.content.trim();
-  } catch (e) { return null; }
+    const result = await chat.sendMessage(prompt);
+    const response = result.response.text().trim();
+    if (response.length > 800) return response.substring(0, 800) + "...";
+    return response;
+  } catch (e) {
+    console.error("Gemini xətası:", e.message);
+    return null;
+  }
 }
 
-// ======================== DETALLI INFO SƏVİYYƏLİ =================
+// ======================== DETALLI INFO SƏVİYYƏLİ (əlavə, markdownsuz) =================
 function getAdditionalDetail(service, lang, level) {
-  // level 1: əsas təsvir (artıq SERVICE_DETAILS-də var)
-  // level 2: əlavə xüsusiyyətlər
-  // level 3: daha dərin məlumat + link
   const extra = {
     website: {
-      2: " **Əlavə olaraq**: Vebsayt layihələrində eyni zamanda Google Maps inteqrasiyası, onlayn randevu sistemi, blog modulu, çoxdillilik dəstəyi təklif edirik. Bütün layihələr GDPR uyğundur.",
-      3: " **Daha ətraflı**: Müştəri nümunələrimiz və portfolio üçün linkə keçin: https://01cs.site/portfolio"
+      2: " Əlavə olaraq: Vebsayt layihələrində eyni zamanda Google Maps inteqrasiyası, onlayn randevu sistemi, blog modulu, çoxdillilik dəstəyi təklif edirik. Bütün layihələr GDPR uyğundur.",
+      3: " Daha ətrafli: Müştəri nümunələrimiz və portfolio üçün linkə keçin: https://01cs.site/portfolio"
     },
     mobile: {
-      2: " **Əlavə olaraq**: Mobil tətbiqlərdə offline rejim, biometrik giriş (barmaq izi, FaceID), sosial media paylaşımı, analitik (Firebase, Mixpanel) dəstəklənir. Tətbiqi App Store və Google Play-ə yükləməkdə kömək edirik.",
-      3: " **Daha ətraflı**: Xüsusi tələblərinizə uyğun fərdi təklif üçün linkə keçin: https://01cs.site/teklif-al.html"
+      2: " Əlavə olaraq: Mobil tətbiqlərdə offline rejim, biometrik giriş (barmaq izi, FaceID), sosial media paylaşimi, analitik (Firebase, Mixpanel) dəstəklənir. Tətbiqi App Store və Google Play-ə yükləməkdə kömək edirik.",
+      3: " Daha ətrafli: Xüsusi tələblərinizə uyğun fərdi təklif üçün linkə keçin: https://01cs.site/teklif-al.html"
     },
     erp: {
-      2: " **Əlavə olaraq**: ERP sistemlərimizə mobil app (menecer üçün), təsdiq axınları (approval workflows), avtomatik email/sms bildirişlər, e-imza inteqrasiyası əlavə edilə bilər.",
-      3: " **Daha ətraflı**: Sizin biznes proseslərinizə uyğun demo təşkil etmək üçün linkdən müraciət edin: https://01cs.site/teklif-al.html"
+      2: " Əlavə olaraq: ERP sistemlərimizə mobil app (menecer üçün), təsdiq axınları (approval workflows), avtomatik email/sms bildirişlər, e-imza inteqrasiyası əlavə edilə bilər.",
+      3: " Daha ətrafli: Sizin biznes proseslərinizə uyğun demo təşkil etmək üçün linkdən müraciət edin: https://01cs.site/teklif-al.html"
     },
     seo: {
-      2: " **Əlavə olaraq**: SEO paketinə lokal SEO (Google My Business), voice search optimizasiyası, yükləmə sürəti optimizasiyası (Core Web Vitals), strukturlaşdırılmış məlumat (schema markup) daxildir.",
-      3: " **Daha ətraflı**: Rəqibləriniz qarşısında önə keçmək üçün linkdən pulsuz SEO audit tələb edin: https://01cs.site/teklif-al.html"
+      2: " Əlavə olaraq: SEO paketinə lokal SEO (Google My Business), voice search optimizasiyası, yükləmə sürəti optimizasiyası (Core Web Vitals), strukturlaşdırılmış məlumat (schema markup) daxildir.",
+      3: " Daha ətrafli: Rəqibləriniz qarşısında önə keçmək üçün linkdən pulsuz SEO audit tələb edin: https://01cs.site/teklif-al.html"
     },
     support: {
-      2: " **Əlavə olaraq**: Texniki dəstək üçün SLA müqaviləsi (24/7 və ya iş saatları), aylıq hesabat, prioritet dəstək xətti təklif olunur.",
-      3: " **Daha ətraflı**: Xüsusi dəstək paketlərimiz haqqında məlumat üçün linkə keçin: https://01cs.site/teklif-al.html"
+      2: " Əlavə olaraq: Texniki dəstək üçün SLA müqaviləsi (24/7 və ya iş saatları), aylıq hesabat, prioritet dəstək xətti təklif olunur.",
+      3: " Daha ətrafli: Xüsusi dəstək paketlərimiz haqqında məlumat üçün linkə keçin: https://01cs.site/teklif-al.html"
     }
   };
   if (level === 2) return extra[service]?.[2] || " Əlavə məlumat üçün linkə keçin: https://01cs.site/teklif-al.html";
@@ -404,7 +409,7 @@ function getAdditionalDetail(service, lang, level) {
 
 // ======================== CANLI DƏSTƏK AÇAR SÖZLƏRİ =================
 const LIVE_KEYWORDS = {
-  az: ["canlı dəstək", "operator çağır", "insan dəstək", "müştəri xidmətləri", "canlı dəstəyə yönləndirin", "canlı destek", "operator cagir"],
+  az: ["canli dəstək", "operator çağir", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin", "canli destek", "operator cagir", "canlı dəstək"],
   ru: ["живая поддержка", "оператор", "позвать оператора", "живой чат"],
   en: ["live support", "call operator", "human support", "talk to human"]
 };
@@ -416,27 +421,27 @@ function isLiveRequest(text) {
   return false;
 }
 
-// ======================== MENYULAR =================
+// ======================== MENYULAR (markdownsuz) =================
 const MENUS = {
   az: {
-    main: "Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə\nDil: az, ru, en",
-    services: "1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP/CRM\n4️⃣ SEO\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyu",
-    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0️⃣ Ana menyu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0️⃣ Ana menyu",
-    liveSupport: "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊"
+    main: "Salam, 01 Code Studio-ya xoş gəlmisiniz!\n\n1 Xidmətlərimiz\n2 Haqqimizda\n3 Əlaqə\nDil: az, ru, en",
+    services: "1 Vebsayt\n2 Mobil Tətbiq\n3 ERP/CRM\n4 SEO\n5 Texniki Dəstək\n0 Ana menyu",
+    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0 Ana menyu",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0 Ana menyu",
+    liveSupport: "Sizi canli dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq."
   },
   ru: {
-    main: "Добро пожаловать! 👋\n1️⃣ Услуги\n2️⃣ О нас\n3️⃣ Контакты\nЯзык: az, ru, en",
-    services: "1️⃣ Сайт\n2️⃣ Приложение\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Поддержка\n0️⃣ Главное меню",
-    about: "01 Code Studio — IT-решения. 🌐 www.01cs.site\n0️⃣ Главное меню",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Главное меню",
+    main: "Добро пожаловать!\n1 Услуги\n2 О нас\n3 Контакты\nЯзык: az, ru, en",
+    services: "1 Сайт\n2 Приложение\n3 ERP\n4 SEO\n5 Поддержка\n0 Главное меню",
+    about: "01 Code Studio — IT-решения. 🌐 www.01cs.site\n0 Главное меню",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0 Главное меню",
     liveSupport: "Перенаправляем вас в службу поддержки. Специалисты свяжутся с вами."
   },
   en: {
-    main: "Welcome to 01 Code Studio! 👋\n\n1️⃣ Services\n2️⃣ About\n3️⃣ Contact\nLanguage: az, ru, en",
-    services: "1️⃣ Website\n2️⃣ Mobile App\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Support\n0️⃣ Main menu",
-    about: "01 Code Studio — professional software solutions. 🌐 www.01cs.site\n0️⃣ Main menu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Main menu",
+    main: "Welcome to 01 Code Studio!\n\n1 Services\n2 About\n3 Contact\nLanguage: az, ru, en",
+    services: "1 Website\n2 Mobile App\n3 ERP\n4 SEO\n5 Support\n0 Main menu",
+    about: "01 Code Studio — professional software solutions. 🌐 www.01cs.site\n0 Main menu",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0 Main menu",
     liveSupport: "Redirecting you to live support. Our experts will contact you shortly."
   }
 };
@@ -447,25 +452,21 @@ async function getResponse(userId, text, username = "user") {
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
 
-  // Dil dəyişmə
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
   if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
 
-  // Canlı dəstək (yeni açar sözlərlə)
   if (isLiveRequest(text)) {
     await sendTelegramNotification(userId, text, username);
     setUserState(userId, { blocked: true });
     return MENUS[language].liveSupport;
   }
 
-  // Ana menyu komandaları
   if (["0", "menu", "salam", "start", "main"].includes(lower)) {
     setUserState(userId, { state: "main", detailLevel: 1 });
     return MENUS[language].main;
   }
 
-  // State: main
   if (state === "main") {
     if (lower === "1") {
       setUserState(userId, { state: "services" });
@@ -479,9 +480,8 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "contact" });
       return MENUS[language].contact;
     }
-    // Təbii sual – AI
     const aiReply = await askAI(text, null, language);
-    if (aiReply && (aiReply.includes("canlı dəstəyə") || aiReply.includes("yönləndiririk"))) {
+    if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
       return aiReply;
@@ -489,7 +489,6 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].main;
   }
 
-  // State: services
   if (state === "services") {
     if (lower === "1") {
       setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 });
@@ -515,9 +514,8 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "main" });
       return MENUS[language].main;
     }
-    // Xidmət seçilməyib, təbii sual – AI
     const aiReply = await askAI(text, null, language);
-    if (aiReply && (aiReply.includes("canlı dəstəyə") || aiReply.includes("yönləndiririk"))) {
+    if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
       return aiReply;
@@ -525,45 +523,35 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].services;
   }
 
-  // State: sub (xidmət izahı göstərilib)
   if (state === "sub") {
-    // "0" ilə xidmətlər menyusuna qayıt
     if (lower === "0") {
       setUserState(userId, { state: "services", detailLevel: 1 });
       return MENUS[language].services;
     }
-    // "ətraflı məlumat ver" və ya "daha ətraflı" sorğusu
-    const detailKeywords = ["ətraflı", "daha ətraflı", "etrafli", "daha etrafli", "more info", "подробнее", "əlavə məlumat"];
+    const detailKeywords = ["ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "more info", "подробнее", "əlavə məlumat"];
     if (detailKeywords.some(kw => lower.includes(kw)) && lastService) {
-      let currentLevel = detailLevel;
-      // Əgər eyni səviyyədə təkrar soruşursa, səviyyəni artır (lakin maks 3)
-      let newLevel = currentLevel + 1;
+      let newLevel = detailLevel + 1;
       if (newLevel > 3) newLevel = 3;
       setUserState(userId, { detailLevel: newLevel });
       const extra = getAdditionalDetail(lastService, language, newLevel);
       if (extra) {
-        // Qaytar: əvvəlki təsvir + əlavə (lakin təkrarlanmamaq üçün sadəcə əlavəni göstər)
-        // Daha yaxşı təcrübə: yalnız əlavə məlumatı göstər
-        return `📌 **Əlavə məlumat (${newLevel}/3):**\n${extra}\n\n0️⃣ Xidmətlərə qayıt`;
+        return `Əlavə məlumat (${newLevel}/3):\n${extra}\n\n0 Xidmətlərə qayit`;
       } else {
-        return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt";
+        return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html\n\n0 Xidmətlərə qayit";
       }
     }
-    // Təbii sual (istifadəçi xidmət haqqında əlavə soruşur)
     const aiReply = await askAI(text, lastService, language);
-    if (aiReply && (aiReply.includes("canlı dəstəyə") || aiReply.includes("yönləndiririk"))) {
+    if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
       return aiReply;
     }
-    // AI cavabı yoxdursa, xidmət təsvirini təkrarlamaq əvəzinə sadəcə xidmətlər menyusunu qaytar
     if (!aiReply) {
       return MENUS[language].services;
     }
     return aiReply;
   }
 
-  // Əgər state tanınmırsa, ana menyuya qayıt
   setUserState(userId, { state: "main" });
   return MENUS[language].main;
 }
@@ -614,7 +602,6 @@ app.post("/webhook", async (req, res) => {
     if (body.object !== "instagram") return;
     for (const entry of body.entry || []) {
       const myId = entry.id;
-      // Şərh emalı
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
         const comment = change.value;
@@ -623,10 +610,9 @@ app.post("/webhook", async (req, res) => {
         const fromUser = comment.from?.username || "istifadəçi";
         if (isProcessed(commentId)) continue;
         logAnalytics(fromUser, "comment", commentText);
-        await replyToComment(commentId, "Salam, şərhinizə cavab DM-də göndərildi ✔️");
+        await replyToComment(commentId, "Salam, şərhinizə cavab DM-də göndərildi");
         await sendDM(commentId, MENUS.az.main);
       }
-      // DM emalı
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
@@ -638,7 +624,6 @@ app.post("/webhook", async (req, res) => {
         const username = msg.sender?.username || "user";
         const response = await getResponse(senderId, text, username);
         if (response) await replyToDM(senderId, response);
-        // Media göndərmə nümunəsi (istəyə bağlı)
         if (text.toLowerCase().includes("şəkil")) {
           await sendMediaDM(senderId, "https://www.01cs.site/sample.jpg", "Nümunə layihə");
         }
@@ -647,7 +632,7 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook xətası:", err.message); }
 });
 
-// ======================== ADMIN PANEL (ŞİFRƏSİZ) =================
+// ======================== ADMIN PANEL =================
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
@@ -707,7 +692,7 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
                 <td>${u.blocked ? '<span class="badge blocked">Bloklu</span>' : '<span class="badge open">Açıq</span>'}</td>
                 <td>${new Date(u.lastActive).toLocaleString()}</td>
                 <td>${u.blocked ? `<a href="/admin/unblock/${u.id}" class="unblock">Bloku aç</a>` : ''}</td>
-               </tr>
+              </tr>
             `).join('')}
           </tbody>
         </table>
@@ -732,5 +717,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   res.redirect("/admin/dashboard");
 });
 
-app.get("/", (req, res) => res.send("01CS Bot (tam funksiyalı, təbii sualları başa düşür) ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir, təbii suallari anlayir ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Server ${CONFIG.PORT} portunda işləyir`));
