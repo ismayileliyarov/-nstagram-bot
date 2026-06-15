@@ -1,7 +1,7 @@
 {
   "name": "01cs-instagram-bot",
-  "version": "5.0.0",
-  "description": "Instagram bot with Google Gemini AI, natural language understanding",
+  "version": "8.1.0",
+  "description": "Instagram bot with Gemini AI - full features",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
