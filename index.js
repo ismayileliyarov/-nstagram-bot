@@ -299,7 +299,6 @@ https://01cs.site/teklif-al.html
   }
 };
 
-// Əlavə detal (səviyyə 2 və 3)
 function getAdditionalDetail(service, lang, level) {
   const extra = {
     website: {
@@ -328,43 +327,43 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// ======================== GOOGLE GEMINI AI ========================
 async function askGemini(prompt, contextService = null, language = "az") {
   if (!genAI) return null;
   const siteInfo = await scrape01csSite();
+  const companyInfo = siteInfo?.fullText ? siteInfo.fullText.substring(0, 800) : "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən bir proqram şirkətidir.";
   const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. 
-Şirkət Azərbaycanda vebsayt, mobil tətbiq, ERP/CRM, SEO və texniki dəstək xidmətləri göstərir.
+Şirkət haqqında məlumat: ${companyInfo}
+
 Cavab qaydaları:
-- YALNIZ şirkətin xidmətləri, qiymətləri, iş prosesi, əlaqə məlumatları haqqında suallara cavab ver.
-- Cavabın qısa, faydalı və 4-5 cümlədən çox olmasın.
-- Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar, ümumi biliklər və s.), heç bir əlavə izah vermədən sadəcə: "Təəssüf ki, buna cavab verə bilmirəm. Mən yalnız 01 Code Studio haqqında məlumat verə bilərəm." yaz.
-- Qiymət soruşduqda öz qiymət siyahımızdan (166tech.az-dan 10-15% aşağı) istifadə et.
-- "Daha ətraflı" sorğusunda cari xidmət haqqında əlavə məlumat ver.
-- Cavabını ${language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində"} yaz.
+- Sual şirkətin xidmətləri (vebsayt, mobil tətbiq, ERP, SEO, texniki dəstək), qiymətləri, iş prosesi, əlaqə məlumatları ilə bağlıdırsa, məmnuniyyətlə cavablandır.
+- Əgər sual şirkətlə birbaşa əlaqəli olmasa da (məsələn, texnologiya haqqında ümumi sual, rəqiblər, bazar trendləri), ədalətli və faydalı cavab verməyə çalış, ancaq "ən doğru məlumat üçün rəsmi linkimizə keçin" kimi xəbərdarlıq edə bilərsən.
+- Yalnız tamamilə əlaqəsiz suallarda (hava, futbol, siyasət, şəxsi həyat) aşağıdakı mesajı qaytar:
+  "Təəssüf ki, bu sualı cavablandırmaq üçün kifayət qədər məlumatım yoxdur. Zəhmət olmasa, 01 Code Studio xidmətləri ilə bağlı sualınızı yazın."
+- Cavabında qısa, faydalı və peşəkar ol. 4-5 cümlədən çox uzatma.
+- Dəqiq qiymət təklifləri üçün linkimizi təklif edə bilərsən: https://01cs.site/teklif-al.html
+- Heç vaxt uydurma məlumat vermə.
 
-Məlumat: ${siteInfo?.fullText?.substring(0, 600) || "01 Code Studio - rəqəmsal həllər şirkəti"}
-
-${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
+İstifadəçi sualı: ${prompt}
+${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ona uyğun cavablandır.` : ""}
+Cavab dili: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" : "İngiliscə"}`;
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const chat = model.startChat({ history: [] });
-    const result = await chat.sendMessage(systemPrompt + "\n\nİstifadəçi sualı: " + prompt);
+    const result = await model.generateContent(systemPrompt);
     let reply = result.response.text().trim();
     if (reply.length > 800) reply = reply.substring(0, 800) + "...";
     return reply;
   } catch (e) {
     console.error("Gemini xətası:", e.message);
-    return null;
+    return "Təəssüf ki, texniki problem səbəbindən cavab verə bilmirəm. Zəhmət olmasa, sualınızı bir az sonra təkrarlayın və ya bizimlə birbaşa əlaqə saxlayın: https://01cs.site";
   }
 }
 
-// Sadə axtarış (Tavily varsa istifadə olunur, yoxsa boş)
 async function webSearch(query) {
   if (CONFIG.TAVILY_API_KEY) {
     try {
       const res = await axios.post("https://api.tavily.com/search", {
         api_key: CONFIG.TAVILY_API_KEY,
-        query: query + " Azerbaycan 2026",
+        query: query + " Azerbaycan",
         search_depth: "basic",
         max_results: 1
       });
@@ -382,7 +381,6 @@ async function scrape01csSite() {
   } catch (e) { return null; }
 }
 
-// Canlı dəstək açar sözləri
 const LIVE_KEYWORDS = {
   az: ["canli dəstək", "operator çağir", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin", "canlı dəstək", "operator cagir"],
   ru: ["живая поддержка", "оператор", "позвать оператора"],
@@ -396,10 +394,12 @@ function isLiveRequest(text) {
   return false;
 }
 
-// Ətraflı sorğu üçün açar sözlər (genişləndirilmiş)
-const DETAIL_KEYWORDS = ["ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "əlavə məlumat", "more info", "подробнее", "daha çox", "ətraflı məlumat", "etrafli melumat", "daha ətraflı məlumat verə bilərsiniz", "etrafli melumat ver"];
+const DETAIL_KEYWORDS = [
+  "ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "əlavə məlumat", "more info", "подробнее",
+  "daha çox", "ətraflı məlumat", "etrafli melumat", "daha ətraflı məlumat verə bilərsiniz",
+  "etrafli melumat ver", "daha ətraflı məlumat verin", "ətraflı məlumat verin"
+];
 
-// Menyular (markdown yoxdur)
 const MENUS = {
   az: {
     main: "Salam, 01 Code Studio-ya xoş gəlmisiniz!\n\n1 Xidmətlərimiz\n2 Haqqimizda\n3 Əlaqə\nDil: az, ru, en",
@@ -424,36 +424,30 @@ const MENUS = {
   }
 };
 
-// ======================== CAVAB FUNKSİYASI ========================
 async function getResponse(userId, text, username = "user") {
   const lower = text.trim().toLowerCase();
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
 
-  // Dil dəyişmə
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
   if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
 
-  // Canlı dəstək
   if (isLiveRequest(text)) {
     await sendTelegramNotification(userId, text, username);
     setUserState(userId, { blocked: true });
     return MENUS[language].liveSupport;
   }
 
-  // Əsas əmrlər
   if (["0", "menu", "salam", "start", "main"].includes(lower)) {
     setUserState(userId, { state: "main", detailLevel: 1 });
     return MENUS[language].main;
   }
 
-  // Ana menyu
   if (state === "main") {
     if (lower === "1") { setUserState(userId, { state: "services" }); return MENUS[language].services; }
     if (lower === "2") { setUserState(userId, { state: "about" }); return MENUS[language].about; }
     if (lower === "3") { setUserState(userId, { state: "contact" }); return MENUS[language].contact; }
-    // Təbii sual (AI)
     const aiReply = await askGemini(text, null, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
@@ -463,7 +457,6 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].main;
   }
 
-  // Xidmət seçimi
   if (state === "services") {
     if (lower === "1") { setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 }); return SERVICE_DETAILS.website[language] || SERVICE_DETAILS.website.az; }
     if (lower === "2") { setUserState(userId, { state: "sub", lastService: "mobile", detailLevel: 1 }); return SERVICE_DETAILS.mobile[language] || SERVICE_DETAILS.mobile.az; }
@@ -471,7 +464,6 @@ async function getResponse(userId, text, username = "user") {
     if (lower === "4") { setUserState(userId, { state: "sub", lastService: "seo", detailLevel: 1 }); return SERVICE_DETAILS.seo[language] || SERVICE_DETAILS.seo.az; }
     if (lower === "5") { setUserState(userId, { state: "sub", lastService: "support", detailLevel: 1 }); return SERVICE_DETAILS.support[language] || SERVICE_DETAILS.support.az; }
     if (lower === "0") { setUserState(userId, { state: "main" }); return MENUS[language].main; }
-    // Xidmət seçilməyib - AI
     const aiReply = await askGemini(text, null, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
@@ -481,14 +473,11 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].services;
   }
 
-  // Xidmət izahı göstərilib (state sub)
   if (state === "sub") {
-    // "0" ilə xidmətlər menyusuna qayıt
     if (lower === "0") {
       setUserState(userId, { state: "services", detailLevel: 1 });
       return MENUS[language].services;
     }
-    // Ətraflı məlumat sorğusu (geniş açar sözlər)
     if (DETAIL_KEYWORDS.some(kw => lower.includes(kw)) && lastService) {
       let newLevel = detailLevel + 1;
       if (newLevel > 3) newLevel = 3;
@@ -500,17 +489,13 @@ async function getResponse(userId, text, username = "user") {
         return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html\n\n0 Xidmətlərə qayit";
       }
     }
-    // Təbii sual (xidmət kontekstində) - AI
     const aiReply = await askGemini(text, lastService, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
       return aiReply;
     }
-    // Əgər AI cavab vermədisə, xidmət təsvirini təkrarlama, sadəcə xidmətlər menyusunu qaytar
-    if (!aiReply) {
-      return MENUS[language].services;
-    }
+    if (!aiReply) return MENUS[language].services;
     return aiReply;
   }
 
@@ -518,7 +503,6 @@ async function getResponse(userId, text, username = "user") {
   return MENUS[language].main;
 }
 
-// ======================== INSTAGRAM API ========================
 async function replyToDM(recipientId, message) {
   if (!message) return;
   await axios.post("https://graph.instagram.com/v21.0/me/messages", {
@@ -545,7 +529,6 @@ async function sendMediaDM(recipientId, imageUrl, caption = "") {
   } catch (e) {}
 }
 
-// ======================== WEBHOOK ========================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -594,7 +577,6 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook xətası:", err.message); }
 });
 
-// ======================== ADMIN PANEL (ŞİFRƏSİZ) ========================
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
@@ -616,27 +598,27 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="UTF-8"><title>Admin Panel</title><style>
-      body{font-family:'Segoe UI',sans-serif;background:#e9ecef;margin:0;padding:20px}
-      .container{max-width:1200px;margin:auto}
-      .stats{display:flex;gap:20px;margin-bottom:20px}
+      body{font-family:sans-serif;background:#e9ecef;padding:20px}
+      .stats{display:flex;gap:20px;flex-wrap:wrap}
       .stat{background:white;padding:15px;border-radius:8px;flex:1;text-align:center}
       .stat .num{font-size:28px;font-weight:bold}
-      table{width:100%;border-collapse:collapse;background:white}
+      table{width:100%;border-collapse:collapse;background:white;margin-top:20px}
       th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd}
     </style></head>
     <body>
-    <div class="container">
       <h1>Admin Panel</h1>
       <div class="stats">
         <div class="stat"><div class="num">${total}</div><div>Ümumi mesajlar</div></div>
         <div class="stat"><div class="num">${unique}</div><div>Unikal istifadəçi</div></div>
         <div class="stat"><div class="num">${blocked}</div><div>Bloklanmış</div></div>
       </div>
-      <h2>İstifadəçilər</h2>
-      <table><tr><th>ID</th><th>State</th><th>Son xidmət</th><th>Dil</th><th>Blok</th><th>Son aktivlik</th><th></th></tr>
-      ${users.map(u => `<tr><td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language}</td><td>${u.blocked ? 'Bloklu' : 'Açıq'}</td><td>${new Date(u.lastActive).toLocaleString()}</td><td>${u.blocked ? `<a href="/admin/unblock/${u.id}">Aç</a>` : ''}</td></tr>`).join('')}
+      <h2>İstifadəçi sessiyaları</h2>
+      <table>
+        <thead><tr><th>ID</th><th>State</th><th>Son xidmət</th><th>Dil</th><th>Blok</th><th>Son aktivlik</th><th></th></tr></thead>
+        <tbody>
+          ${users.map(u => `<tr><td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language}</td><td>${u.blocked ? 'Bloklu' : 'Açıq'}</td><td>${new Date(u.lastActive).toLocaleString()}</td><td>${u.blocked ? `<a href="/admin/unblock/${u.id}">Bloku aç</a>` : ''}</td></tr>`).join('')}
+        </tbody>
       </table>
-    </div>
     </body></html>
   `);
 });
@@ -645,5 +627,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir ✅"));
-app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
+app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir, bütün suallar işlənir ✅"));
+app.listen(CONFIG.PORT, () => console.log(`🚀 Server ${CONFIG.PORT} portunda işləyir`));
