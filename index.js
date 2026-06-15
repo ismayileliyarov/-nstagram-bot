@@ -8,7 +8,7 @@ const Groq = require("groq-sdk");
 const app = express();
 app.use(express.json());
 app.use(session({
-  secret: "01cs_secret_key",
+  secret: process.env.SESSION_SECRET || "01cs_secret_key",
   resave: false,
   saveUninitialized: true,
   cookie: { secure: false }
@@ -139,7 +139,7 @@ async function webSearch(query) {
       return res.data.results.map(r => ({ title: r.title, content: r.content }));
     } catch (e) { console.log("Tavily xətası:", e.message); }
   }
-  // Fallback (sadə)
+  // Fallback (sadə Google scraping)
   try {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query + " qiymət Azərbaycan")}`;
     const { data } = await axios.get(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 5000 });
@@ -392,15 +392,20 @@ function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
 }
+
 app.get("/admin/login", (req, res) => {
   res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="Şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
 });
+
 app.post("/admin/login", (req, res) => {
   if (req.body.pwd === CONFIG.ADMIN_PASSWORD) {
     req.session.admin = true;
     res.redirect("/admin/dashboard");
-  } else res.send("Şifrə yanlış. <a href='/admin/login'>Geri</a>");
+  } else {
+    res.send("Şifrə yanlış. <a href='/admin/login'>Geri</a>");
+  }
 });
+
 app.get("/admin/dashboard", isAdmin, (req, res) => {
   let analytics = [];
   if (fs.existsSync(ANALYTICS_FILE)) analytics = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
@@ -454,7 +459,7 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
       <div class="card">
         <h2>📋 Son 20 Hadisə</h2>
         <table><th>Vaxt</th><th>İstifadəçi</th><th>Tip</th><th>Məzmun</th></tr>
-        ${analytics.slice(-20).reverse().map(e => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.userId}</td><td>${e.action}</td><td>${e.details?.substring(0,50)}</td>`).join('')}
+        ${analytics.slice(-20).reverse().map(e => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.userId}</td><td>${e.action}</td><td>${e.details?.substring(0,50)}</td></tr>`).join('')}
         </table>
       </div>
     </div>
@@ -462,70 +467,18 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
     </html>
   `);
 });
+
 app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   const userId = req.params.userId;
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
+
 app.get("/analytics", isAdmin, (req, res) => {
   if (!fs.existsSync(ANALYTICS_FILE)) return res.json([]);
   const data = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
   res.json(data.slice(-200));
 });
+
 app.get("/", (req, res) => res.send("01CS Bot (tam funksiyalı) işləyir ✅"));
-// ========== ADMIN PANEL ROUTELARI ==========
-const session = require("express-session");
-
-app.use(session({
-  secret: "admin_secret_key",
-  resave: false,
-  saveUninitialized: true
-}));
-
-function isAdmin(req, res, next) {
-  if (req.session.admin) return next();
-  res.redirect("/admin/login");
-}
-
-app.get("/admin/login", (req, res) => {
-  res.send(`
-    <html>
-      <body style="font-family:sans-serif;text-align:center;margin-top:50px">
-        <h2>Admin Girişi</h2>
-        <form method="post" action="/admin/login">
-          <input type="password" name="pwd" placeholder="Şifrə" />
-          <button type="submit">Daxil ol</button>
-        </form>
-      </body>
-    </html>
-  `);
-});
-
-app.post("/admin/login", (req, res) => {
-  const adminPass = process.env.ADMIN_PASSWORD || "admin123";
-  if (req.body.pwd === adminPass) {
-    req.session.admin = true;
-    res.redirect("/admin/dashboard");
-  } else {
-    res.send("Şifrə yanlışdır. <a href='/admin/login'>Geri</a>");
-  }
-});
-
-app.get("/admin/dashboard", isAdmin, (req, res) => {
-  res.send(`
-    <html>
-      <head><meta charset="UTF-8"><title>Admin Panel</title></head>
-      <body style="font-family:sans-serif;padding:20px">
-        <h1>📊 Admin Panel</h1>
-        <p>Bot işləyir ✅</p>
-        <p><a href="/admin/logout">Çıxış</a></p>
-      </body>
-    </html>
-  `);
-});
-
-app.get("/admin/logout", (req, res) => {
-  req.session.destroy();
-  res.redirect("/admin/login");
-});
-app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
+app.listen(CONFIG.PORT, () => console.log(`🚀 Server ${CONFIG.PORT} portunda işləyir`));
