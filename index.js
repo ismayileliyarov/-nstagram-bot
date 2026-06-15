@@ -14,7 +14,6 @@ app.use(session({
   cookie: { secure: false, httpOnly: true, sameSite: 'lax' }
 }));
 
-// ======================== KONFİQURASİYA ========================
 const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
@@ -30,7 +29,6 @@ if (CONFIG.GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
 }
 
-// ======================== ANALİTİKA ============================
 const ANALYTICS_FILE = "/tmp/analytics.json";
 function logAnalytics(userId, action, details = "") {
   try {
@@ -42,7 +40,6 @@ function logAnalytics(userId, action, details = "") {
   } catch (e) {}
 }
 
-// ======================== TELEGRAM BİLDİRİŞİ ===================
 async function sendTelegramNotification(userId, userMessage, username = "istifadəçi") {
   if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
   const text = `🆘 CANLI DƏSTƏK TƏLƏBİ\n\nİstifadəçi: @${username}\nID: ${userId}\nMesaj: ${userMessage.substring(0, 200)}`;
@@ -54,7 +51,6 @@ async function sendTelegramNotification(userId, userMessage, username = "istifad
   } catch (e) { console.log("Telegram xətası:", e.message); }
 }
 
-// ======================== YADDAŞ ID VƏ VƏZİYYƏTLƏR ==============
 const processedIds = new Map();
 function isProcessed(id) {
   const now = Date.now();
@@ -84,7 +80,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// ======================== ƏTRAFLI XİDMƏT TƏSVİRLƏRİ (markdownsuz) =================
+// Xidmət təsvirləri (markdown yoxdur)
 const SERVICE_DETAILS = {
   website: {
     az: `Vebsayt Hazirlanmasi
@@ -96,17 +92,12 @@ Xidmet növləri:
 
 Xüsusiyyətlər:
 • 100% mobil uygun (responsive)
-• SEO hazirliği (Google-da yerleşmek üçün)
-• İstenilen ödəniş sistemi inteqrasiyası
-• Admin panel – sayti özünüz idarə edə bilərsiniz
-• Layihə bitdikdən sonra 1 ay pulsuz texniki dəstək
+• SEO hazirliği
+• İstenilen ödəniş sistemi inteqrasiyasi
+• Admin panel
+• 1 ay pulsuz texniki dəstək
 
-Əlavə:
-• Domain ve hosting qeydiyyatinda kömək
-• Google Analytics ve Search Console qurulumu
-• Sosial şəbəkə inteqrasiyasi
-
-Dəqiq təklif üçün: https://01cs.site/teklif-al.html
+Dəqiq təklif: https://01cs.site/teklif-al.html
 
 0 Xidmətlərə qayit`,
     ru: `Разработка веб-сайтов
@@ -157,10 +148,10 @@ Xüsusiyyətlər:
 • Push bildirişlər
 • Ödəniş sistemləri (Apple Pay, Google Pay, kart)
 • Chat, xəritə, GPS funksiyalari
-• Admin panel (istifadəçilər, məzmun, statistikalar)
+• Admin panel
 • Server ve API arxitekturası
 
-Dəqiq təklif üçün: https://01cs.site/teklif-al.html
+Dəqiq təklif: https://01cs.site/teklif-al.html
 
 0 Xidmətlərə qayit`,
     ru: `Разработка мобильных приложений
@@ -212,9 +203,9 @@ Qiymət: 7000-43000 AZN (layihəyə görə)
 Müddət: 3-8 həftə (tam fərdi)
 
 Xüsusiyyətlər:
-• İstənilən API ilə inteqrasiya (bank, ödəniş, kargolar)
+• İstənilən API ilə inteqrasiya
 • Real-time məlumat sinxronizasiyasi
-• Çoxistifadəçili sistem, rol ve icazələr
+• Çoxistifadəçili sistem
 • Bulud ve ya on-premise quraşdirma
 • 1 ay pulsuz test dəstəyi
 
@@ -245,15 +236,13 @@ https://01cs.site/teklif-al.html
 
 Xidmet daxildir:
 • Açar söz araşdırması
-• Texniki SEO audit (sayt sürəti, mobil uyğunluq, indeksləşmə)
-• Daxili optimizasiya (meta teqlər, struktur, məzmun)
-• Keyfiyyətli backlinklərin qurulması
-• Aylıq hesabat (rank, trafik, conversion)
+• Texniki SEO audit
+• Daxili optimizasiya
+• Keyfiyyətli backlinklər
+• Aylıq hesabat
 
-Qiymət: 450-1800 AZN/ay (layihənin həcminə görə)
-Nəticə: 1-3 ay ərzində Google-da irəliləyiş
-
-Əlavə: Rəqib təhlili, lokal SEO (Google Maps), e-ticarət SEO
+Qiymət: 450-1800 AZN/ay
+Nəticə: 1-3 ay
 
 Dəqiq təklif: https://01cs.site/teklif-al.html
 
@@ -281,14 +270,14 @@ https://01cs.site/teklif-al.html
     az: `Texniki Dəstək
 
 Xidmet daxildir:
-• Mövcud layihənin təhlükəsizlik yeniləmələri
-• Sürət optimizasiyasi (sayt/tətbiq)
-• Xəta düzəlişləri ve bug fix
-• Yeni funksiyalarin əlavə edilməsi (saatliq)
-• 7/24 onlayn dəstək (chat, email)
+• Təhlükəsizlik yeniləmələri
+• Sürət optimizasiyasi
+• Xəta düzəlişləri
+• Yeni funksiyalar (saatliq)
+• 7/24 onlayn dəstək
 
-Qiymət: 250-1500 AZN/saat (ve ya aylıq abunə müqaviləsi)
-Cavab müddəti: Kritik xətalar üçün 1-2 saat
+Qiymət: 250-1500 AZN/saat (və ya abunə)
+Cavab müddəti: 1-2 saat kritik xətalar
 
 Dəqiq təklif: https://01cs.site/teklif-al.html
 
@@ -310,21 +299,66 @@ https://01cs.site/teklif-al.html
   }
 };
 
-// ======================== SAYT SKRAPING =================
-let siteCache = { data: null, timestamp: 0 };
-async function scrape01csSite() {
-  if (siteCache.data && Date.now() - siteCache.timestamp < 3600000) return siteCache.data;
-  try {
-    const { data } = await axios.get("https://01cs.site", { timeout: 8000 });
-    const $ = cheerio.load(data);
-    const fullText = $("body").text().substring(0, 2000);
-    siteCache.data = { fullText };
-    siteCache.timestamp = Date.now();
-    return siteCache.data;
-  } catch (e) { return null; }
+// Əlavə detal (səviyyə 2 və 3)
+function getAdditionalDetail(service, lang, level) {
+  const extra = {
+    website: {
+      2: "Əlavə olaraq: Vebsayt layihələrində Google Maps inteqrasiyası, onlayn randevu sistemi, blog modulu, çoxdillilik dəstəyi təklif edirik. Bütün layihələr GDPR uyğundur.",
+      3: "Daha ətraflı: Müştəri nümunələrimiz və portfolio üçün linkə keçin: https://01cs.site/portfolio"
+    },
+    mobile: {
+      2: "Əlavə olaraq: Mobil tətbiqlərdə offline rejim, biometrik giriş (barmaq izi, FaceID), sosial media paylaşimi, analitik (Firebase, Mixpanel) dəstəklənir. Tətbiqi App Store və Google Play-ə yükləməkdə kömək edirik.",
+      3: "Daha ətraflı: Xüsusi tələblərinizə uyğun fərdi təklif üçün linkə keçin: https://01cs.site/teklif-al.html"
+    },
+    erp: {
+      2: "Əlavə olaraq: ERP sistemlərimizə mobil app (menecer üçün), təsdiq axınları, avtomatik email/sms bildirişlər, e-imza inteqrasiyası əlavə edilə bilər.",
+      3: "Daha ətraflı: Sizin biznes proseslərinizə uyğun demo təşkil etmək üçün linkdən müraciət edin: https://01cs.site/teklif-al.html"
+    },
+    seo: {
+      2: "Əlavə olaraq: SEO paketinə lokal SEO (Google My Business), voice search optimizasiyası, yükləmə sürəti optimizasiyası (Core Web Vitals), strukturlaşdirilmiş məlumat (schema markup) daxildir.",
+      3: "Daha ətraflı: Rəqibləriniz qarşısında önə keçmək üçün linkdən pulsuz SEO audit tələb edin: https://01cs.site/teklif-al.html"
+    },
+    support: {
+      2: "Əlavə olaraq: Texniki dəstək üçün SLA müqaviləsi (24/7 və ya iş saatları), aylıq hesabat, prioritet dəstək xətti təklif olunur.",
+      3: "Daha ətraflı: Xüsusi dəstək paketlərimiz haqqında məlumat üçün linkə keçin: https://01cs.site/teklif-al.html"
+    }
+  };
+  if (level === 2) return extra[service]?.[2] || "Əlavə məlumat üçün linkə keçin: https://01cs.site/teklif-al.html";
+  if (level >= 3) return extra[service]?.[3] || "Bütün detallar üçün linkdən təklif alın: https://01cs.site/teklif-al.html";
+  return "";
 }
 
-// ======================== İNTERNET AXTARIŞ (Tavily) =================
+// ======================== GOOGLE GEMINI AI ========================
+async function askGemini(prompt, contextService = null, language = "az") {
+  if (!genAI) return null;
+  const siteInfo = await scrape01csSite();
+  const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. 
+Şirkət Azərbaycanda vebsayt, mobil tətbiq, ERP/CRM, SEO və texniki dəstək xidmətləri göstərir.
+Cavab qaydaları:
+- YALNIZ şirkətin xidmətləri, qiymətləri, iş prosesi, əlaqə məlumatları haqqında suallara cavab ver.
+- Cavabın qısa, faydalı və 4-5 cümlədən çox olmasın.
+- Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar, ümumi biliklər və s.), heç bir əlavə izah vermədən sadəcə: "Təəssüf ki, buna cavab verə bilmirəm. Mən yalnız 01 Code Studio haqqında məlumat verə bilərəm." yaz.
+- Qiymət soruşduqda öz qiymət siyahımızdan (166tech.az-dan 10-15% aşağı) istifadə et.
+- "Daha ətraflı" sorğusunda cari xidmət haqqında əlavə məlumat ver.
+- Cavabını ${language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində"} yaz.
+
+Məlumat: ${siteInfo?.fullText?.substring(0, 600) || "01 Code Studio - rəqəmsal həllər şirkəti"}
+
+${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const chat = model.startChat({ history: [] });
+    const result = await chat.sendMessage(systemPrompt + "\n\nİstifadəçi sualı: " + prompt);
+    let reply = result.response.text().trim();
+    if (reply.length > 800) reply = reply.substring(0, 800) + "...";
+    return reply;
+  } catch (e) {
+    console.error("Gemini xətası:", e.message);
+    return null;
+  }
+}
+
+// Sadə axtarış (Tavily varsa istifadə olunur, yoxsa boş)
 async function webSearch(query) {
   if (CONFIG.TAVILY_API_KEY) {
     try {
@@ -332,86 +366,27 @@ async function webSearch(query) {
         api_key: CONFIG.TAVILY_API_KEY,
         query: query + " Azerbaycan 2026",
         search_depth: "basic",
-        max_results: 2
+        max_results: 1
       });
-      return res.data.results.map(r => ({ title: r.title, content: r.content }));
+      return res.data.results.map(r => r.content);
     } catch (e) {}
   }
   return [];
 }
 
-// ======================== AI SORĞUSU (Google Gemini) =================
-async function askAI(prompt, contextService = null, language = "az") {
-  if (!genAI) return null;
-  const siteInfo = await scrape01csSite();
-  const webResults = await webSearch(`${contextService || "ümuumi"} sorğu`);
-  let marketData = "";
-  if (webResults.length) {
-    marketData = "\n\nBazar məlumatlari:\n" + webResults.map(r => `- ${r.title}: ${r.content.substring(0, 100)}`).join("\n");
-  }
-  const langInstruction = language === "az" ? "Cavabi Azərbaycan dilində, 4-5 cümlə ilə ver."
-                          : language === "ru" ? "Ответ дай на русском языке, 4-5 предложений."
-                          : "Answer in English, 4-5 sentences.";
-  const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. Məlumat: ${siteInfo?.fullText?.substring(0, 600) || "IT xidmətləri şirkəti"}
-Cavab qaydalari: 4-5 cümlə, faydali, peşəkar. İstifadəçi istənilən təbii suali verə bilər, ona uyğun cavablandir.
-Şirkətimiz vebsayt, mobil tətbiq, ERP, SEO, texniki dəstək xidmətləri göstərir.
-Qiymət təkliflərində öz qiymət siyahimizdan (166tech.az-dan 10-15% aşaği) istifadə et.
-Əgər sual şirkət işi ilə əlaqəli deyilsə, cavabinda "Sizi canli dəstəyə yönləndiririk..." yaz.
-${contextService ? `İstifadəçi hazirda "${contextService}" xidmətinə baxir.` : ""}
-${langInstruction}
-${marketData}`;
+async function scrape01csSite() {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const chat = model.startChat({
-      history: [
-        { role: "user", parts: [{ text: systemPrompt }] },
-        { role: "model", parts: [{ text: "Başa düşdüm. Mən köməkçiyəm." }] }
-      ]
-    });
-    const result = await chat.sendMessage(prompt);
-    const response = result.response.text().trim();
-    if (response.length > 800) return response.substring(0, 800) + "...";
-    return response;
-  } catch (e) {
-    console.error("Gemini xətası:", e.message);
-    return null;
-  }
+    const { data } = await axios.get("https://01cs.site", { timeout: 5000 });
+    const $ = cheerio.load(data);
+    return { fullText: $("body").text().substring(0, 1500) };
+  } catch (e) { return null; }
 }
 
-// ======================== DETALLI INFO SƏVİYYƏLİ (əlavə, markdownsuz) =================
-function getAdditionalDetail(service, lang, level) {
-  const extra = {
-    website: {
-      2: " Əlavə olaraq: Vebsayt layihələrində eyni zamanda Google Maps inteqrasiyası, onlayn randevu sistemi, blog modulu, çoxdillilik dəstəyi təklif edirik. Bütün layihələr GDPR uyğundur.",
-      3: " Daha ətrafli: Müştəri nümunələrimiz və portfolio üçün linkə keçin: https://01cs.site/portfolio"
-    },
-    mobile: {
-      2: " Əlavə olaraq: Mobil tətbiqlərdə offline rejim, biometrik giriş (barmaq izi, FaceID), sosial media paylaşimi, analitik (Firebase, Mixpanel) dəstəklənir. Tətbiqi App Store və Google Play-ə yükləməkdə kömək edirik.",
-      3: " Daha ətrafli: Xüsusi tələblərinizə uyğun fərdi təklif üçün linkə keçin: https://01cs.site/teklif-al.html"
-    },
-    erp: {
-      2: " Əlavə olaraq: ERP sistemlərimizə mobil app (menecer üçün), təsdiq axınları (approval workflows), avtomatik email/sms bildirişlər, e-imza inteqrasiyası əlavə edilə bilər.",
-      3: " Daha ətrafli: Sizin biznes proseslərinizə uyğun demo təşkil etmək üçün linkdən müraciət edin: https://01cs.site/teklif-al.html"
-    },
-    seo: {
-      2: " Əlavə olaraq: SEO paketinə lokal SEO (Google My Business), voice search optimizasiyası, yükləmə sürəti optimizasiyası (Core Web Vitals), strukturlaşdırılmış məlumat (schema markup) daxildir.",
-      3: " Daha ətrafli: Rəqibləriniz qarşısında önə keçmək üçün linkdən pulsuz SEO audit tələb edin: https://01cs.site/teklif-al.html"
-    },
-    support: {
-      2: " Əlavə olaraq: Texniki dəstək üçün SLA müqaviləsi (24/7 və ya iş saatları), aylıq hesabat, prioritet dəstək xətti təklif olunur.",
-      3: " Daha ətrafli: Xüsusi dəstək paketlərimiz haqqında məlumat üçün linkə keçin: https://01cs.site/teklif-al.html"
-    }
-  };
-  if (level === 2) return extra[service]?.[2] || " Əlavə məlumat üçün linkə keçin: https://01cs.site/teklif-al.html";
-  if (level >= 3) return extra[service]?.[3] || " Bütün detallar üçün linkdən təklif alın: https://01cs.site/teklif-al.html";
-  return "";
-}
-
-// ======================== CANLI DƏSTƏK AÇAR SÖZLƏRİ =================
+// Canlı dəstək açar sözləri
 const LIVE_KEYWORDS = {
-  az: ["canli dəstək", "operator çağir", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin", "canli destek", "operator cagir", "canlı dəstək"],
-  ru: ["живая поддержка", "оператор", "позвать оператора", "живой чат"],
-  en: ["live support", "call operator", "human support", "talk to human"]
+  az: ["canli dəstək", "operator çağir", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin", "canlı dəstək", "operator cagir"],
+  ru: ["живая поддержка", "оператор", "позвать оператора"],
+  en: ["live support", "call operator", "human support"]
 };
 function isLiveRequest(text) {
   const lower = text.toLowerCase();
@@ -421,7 +396,10 @@ function isLiveRequest(text) {
   return false;
 }
 
-// ======================== MENYULAR (markdownsuz) =================
+// Ətraflı sorğu üçün açar sözlər (genişləndirilmiş)
+const DETAIL_KEYWORDS = ["ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "əlavə məlumat", "more info", "подробнее", "daha çox", "ətraflı məlumat", "etrafli melumat", "daha ətraflı məlumat verə bilərsiniz", "etrafli melumat ver"];
+
+// Menyular (markdown yoxdur)
 const MENUS = {
   az: {
     main: "Salam, 01 Code Studio-ya xoş gəlmisiniz!\n\n1 Xidmətlərimiz\n2 Haqqimizda\n3 Əlaqə\nDil: az, ru, en",
@@ -435,52 +413,48 @@ const MENUS = {
     services: "1 Сайт\n2 Приложение\n3 ERP\n4 SEO\n5 Поддержка\n0 Главное меню",
     about: "01 Code Studio — IT-решения. 🌐 www.01cs.site\n0 Главное меню",
     contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0 Главное меню",
-    liveSupport: "Перенаправляем вас в службу поддержки. Специалисты свяжутся с вами."
+    liveSupport: "Перенаправляем вас в службу поддержки."
   },
   en: {
     main: "Welcome to 01 Code Studio!\n\n1 Services\n2 About\n3 Contact\nLanguage: az, ru, en",
     services: "1 Website\n2 Mobile App\n3 ERP\n4 SEO\n5 Support\n0 Main menu",
     about: "01 Code Studio — professional software solutions. 🌐 www.01cs.site\n0 Main menu",
     contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0 Main menu",
-    liveSupport: "Redirecting you to live support. Our experts will contact you shortly."
+    liveSupport: "Redirecting you to live support."
   }
 };
 
-// ======================== CAVAB FUNKSİYASI =================
+// ======================== CAVAB FUNKSİYASI ========================
 async function getResponse(userId, text, username = "user") {
   const lower = text.trim().toLowerCase();
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
 
+  // Dil dəyişmə
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
   if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
 
+  // Canlı dəstək
   if (isLiveRequest(text)) {
     await sendTelegramNotification(userId, text, username);
     setUserState(userId, { blocked: true });
     return MENUS[language].liveSupport;
   }
 
+  // Əsas əmrlər
   if (["0", "menu", "salam", "start", "main"].includes(lower)) {
     setUserState(userId, { state: "main", detailLevel: 1 });
     return MENUS[language].main;
   }
 
+  // Ana menyu
   if (state === "main") {
-    if (lower === "1") {
-      setUserState(userId, { state: "services" });
-      return MENUS[language].services;
-    }
-    if (lower === "2") {
-      setUserState(userId, { state: "about" });
-      return MENUS[language].about;
-    }
-    if (lower === "3") {
-      setUserState(userId, { state: "contact" });
-      return MENUS[language].contact;
-    }
-    const aiReply = await askAI(text, null, language);
+    if (lower === "1") { setUserState(userId, { state: "services" }); return MENUS[language].services; }
+    if (lower === "2") { setUserState(userId, { state: "about" }); return MENUS[language].about; }
+    if (lower === "3") { setUserState(userId, { state: "contact" }); return MENUS[language].contact; }
+    // Təbii sual (AI)
+    const aiReply = await askGemini(text, null, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
@@ -489,32 +463,16 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].main;
   }
 
+  // Xidmət seçimi
   if (state === "services") {
-    if (lower === "1") {
-      setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 });
-      return SERVICE_DETAILS.website[language] || SERVICE_DETAILS.website.az;
-    }
-    if (lower === "2") {
-      setUserState(userId, { state: "sub", lastService: "mobile", detailLevel: 1 });
-      return SERVICE_DETAILS.mobile[language] || SERVICE_DETAILS.mobile.az;
-    }
-    if (lower === "3") {
-      setUserState(userId, { state: "sub", lastService: "erp", detailLevel: 1 });
-      return SERVICE_DETAILS.erp[language] || SERVICE_DETAILS.erp.az;
-    }
-    if (lower === "4") {
-      setUserState(userId, { state: "sub", lastService: "seo", detailLevel: 1 });
-      return SERVICE_DETAILS.seo[language] || SERVICE_DETAILS.seo.az;
-    }
-    if (lower === "5") {
-      setUserState(userId, { state: "sub", lastService: "support", detailLevel: 1 });
-      return SERVICE_DETAILS.support[language] || SERVICE_DETAILS.support.az;
-    }
-    if (lower === "0") {
-      setUserState(userId, { state: "main" });
-      return MENUS[language].main;
-    }
-    const aiReply = await askAI(text, null, language);
+    if (lower === "1") { setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 }); return SERVICE_DETAILS.website[language] || SERVICE_DETAILS.website.az; }
+    if (lower === "2") { setUserState(userId, { state: "sub", lastService: "mobile", detailLevel: 1 }); return SERVICE_DETAILS.mobile[language] || SERVICE_DETAILS.mobile.az; }
+    if (lower === "3") { setUserState(userId, { state: "sub", lastService: "erp", detailLevel: 1 }); return SERVICE_DETAILS.erp[language] || SERVICE_DETAILS.erp.az; }
+    if (lower === "4") { setUserState(userId, { state: "sub", lastService: "seo", detailLevel: 1 }); return SERVICE_DETAILS.seo[language] || SERVICE_DETAILS.seo.az; }
+    if (lower === "5") { setUserState(userId, { state: "sub", lastService: "support", detailLevel: 1 }); return SERVICE_DETAILS.support[language] || SERVICE_DETAILS.support.az; }
+    if (lower === "0") { setUserState(userId, { state: "main" }); return MENUS[language].main; }
+    // Xidmət seçilməyib - AI
+    const aiReply = await askGemini(text, null, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
@@ -523,13 +481,15 @@ async function getResponse(userId, text, username = "user") {
     return aiReply || MENUS[language].services;
   }
 
+  // Xidmət izahı göstərilib (state sub)
   if (state === "sub") {
+    // "0" ilə xidmətlər menyusuna qayıt
     if (lower === "0") {
       setUserState(userId, { state: "services", detailLevel: 1 });
       return MENUS[language].services;
     }
-    const detailKeywords = ["ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "more info", "подробнее", "əlavə məlumat"];
-    if (detailKeywords.some(kw => lower.includes(kw)) && lastService) {
+    // Ətraflı məlumat sorğusu (geniş açar sözlər)
+    if (DETAIL_KEYWORDS.some(kw => lower.includes(kw)) && lastService) {
       let newLevel = detailLevel + 1;
       if (newLevel > 3) newLevel = 3;
       setUserState(userId, { detailLevel: newLevel });
@@ -540,12 +500,14 @@ async function getResponse(userId, text, username = "user") {
         return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html\n\n0 Xidmətlərə qayit";
       }
     }
-    const aiReply = await askAI(text, lastService, language);
+    // Təbii sual (xidmət kontekstində) - AI
+    const aiReply = await askGemini(text, lastService, language);
     if (aiReply && (aiReply.includes("canli dəstəyə") || aiReply.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, text, username);
       setUserState(userId, { blocked: true });
       return aiReply;
     }
+    // Əgər AI cavab vermədisə, xidmət təsvirini təkrarlama, sadəcə xidmətlər menyusunu qaytar
     if (!aiReply) {
       return MENUS[language].services;
     }
@@ -556,7 +518,7 @@ async function getResponse(userId, text, username = "user") {
   return MENUS[language].main;
 }
 
-// ======================== INSTAGRAM API FUNKSİYALARI =================
+// ======================== INSTAGRAM API ========================
 async function replyToDM(recipientId, message) {
   if (!message) return;
   await axios.post("https://graph.instagram.com/v21.0/me/messages", {
@@ -580,10 +542,10 @@ async function sendMediaDM(recipientId, imageUrl, caption = "") {
         ...(caption && { text: caption })
       }
     }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
-  } catch (e) { console.log("Media xətası:", e.message); }
+  } catch (e) {}
 }
 
-// ======================== WEBHOOK ENDPOINTLƏRİ =================
+// ======================== WEBHOOK ========================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -632,21 +594,18 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook xətası:", err.message); }
 });
 
-// ======================== ADMIN PANEL =================
+// ======================== ADMIN PANEL (ŞİFRƏSİZ) ========================
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
 }
-
 app.get("/admin/login", (req, res) => {
   res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="İstənilən şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
 });
-
 app.post("/admin/login", (req, res) => {
   req.session.admin = true;
   res.redirect("/admin/dashboard");
 });
-
 app.get("/admin/dashboard", isAdmin, (req, res) => {
   let analytics = [];
   if (fs.existsSync(ANALYTICS_FILE)) analytics = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
@@ -659,63 +618,32 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
     <html><head><meta charset="UTF-8"><title>Admin Panel</title><style>
       body{font-family:'Segoe UI',sans-serif;background:#e9ecef;margin:0;padding:20px}
       .container{max-width:1200px;margin:auto}
-      h1{color:#1a1a2e}
-      .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin-bottom:30px}
-      .stat{background:white;border-radius:12px;padding:20px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-      .stat h3{margin:0;color:#666;font-size:14px}
-      .stat .num{font-size:32px;font-weight:bold;margin:10px 0 0}
-      .card{background:white;border-radius:12px;padding:20px;margin-bottom:30px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-      .card h2{margin-top:0;border-bottom:2px solid #eee;padding-bottom:10px}
-      table{width:100%;border-collapse:collapse;font-size:14px}
-      th,td{padding:10px;text-align:left;border-bottom:1px solid #eee}
-      th{background:#f8f9fa}
-      .unblock{background:#28a745;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;text-decoration:none}
-      .badge.blocked{background:#dc3545;color:white;padding:2px 8px;border-radius:20px;font-size:12px}
-      .badge.open{background:#28a745;color:white;padding:2px 8px;border-radius:20px;font-size:12px}
+      .stats{display:flex;gap:20px;margin-bottom:20px}
+      .stat{background:white;padding:15px;border-radius:8px;flex:1;text-align:center}
+      .stat .num{font-size:28px;font-weight:bold}
+      table{width:100%;border-collapse:collapse;background:white}
+      th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd}
     </style></head>
     <body>
     <div class="container">
-      <h1>📊 01CS Bot Admin Paneli</h1>
+      <h1>Admin Panel</h1>
       <div class="stats">
-        <div class="stat"><h3>Ümumi Mesajlar</h3><div class="num">${total}</div></div>
-        <div class="stat"><h3>Unikal İstifadəçi</h3><div class="num">${unique}</div></div>
-        <div class="stat"><h3>Bloklanmış</h3><div class="num">${blocked}</div></div>
+        <div class="stat"><div class="num">${total}</div><div>Ümumi mesajlar</div></div>
+        <div class="stat"><div class="num">${unique}</div><div>Unikal istifadəçi</div></div>
+        <div class="stat"><div class="num">${blocked}</div><div>Bloklanmış</div></div>
       </div>
-      <div class="card">
-        <h2>👥 İstifadəçi Sessiyaları</h2>
-        <table>
-          <thead><tr><th>ID</th><th>State</th><th>Son Xidmət</th><th>Dil</th><th>Blok</th><th>Son Aktivlik</th><th></th></tr></thead>
-          <tbody>
-            ${users.map(u => `
-              <tr>
-                <td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language || 'az'}</td>
-                <td>${u.blocked ? '<span class="badge blocked">Bloklu</span>' : '<span class="badge open">Açıq</span>'}</td>
-                <td>${new Date(u.lastActive).toLocaleString()}</td>
-                <td>${u.blocked ? `<a href="/admin/unblock/${u.id}" class="unblock">Bloku aç</a>` : ''}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>📋 Son 20 Hadisə</h2>
-        <table><thead><tr><th>Vaxt</th><th>İstifadəçi</th><th>Tip</th><th>Məzmun</th></tr></thead>
-        <tbody>
-          ${analytics.slice(-20).reverse().map(e => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.userId}</td><td>${e.action}</td><td>${e.details?.substring(0,50)}</td></tr>`).join('')}
-        </tbody>
-        </table>
-      </div>
+      <h2>İstifadəçilər</h2>
+      <table><tr><th>ID</th><th>State</th><th>Son xidmət</th><th>Dil</th><th>Blok</th><th>Son aktivlik</th><th></th></tr>
+      ${users.map(u => `<tr><td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language}</td><td>${u.blocked ? 'Bloklu' : 'Açıq'}</td><td>${new Date(u.lastActive).toLocaleString()}</td><td>${u.blocked ? `<a href="/admin/unblock/${u.id}">Aç</a>` : ''}</td></tr>`).join('')}
+      </table>
     </div>
-    </body>
-    </html>
+    </body></html>
   `);
 });
-
 app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   const userId = req.params.userId;
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-
-app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir, təbii suallari anlayir ✅"));
-app.listen(CONFIG.PORT, () => console.log(`🚀 Server ${CONFIG.PORT} portunda işləyir`));
+app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir ✅"));
+app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
