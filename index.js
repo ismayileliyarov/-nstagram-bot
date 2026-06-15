@@ -11,7 +11,7 @@ app.use(session({
   secret: "01cs_very_secret_key",
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: false }
+  cookie: { secure: false, httpOnly: true, sameSite: 'lax' }
 }));
 
 // ======================== KONFİQURASİYA ========================
@@ -22,12 +22,9 @@ const CONFIG = {
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
-  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "admin123",
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "admin123", // saxlanılır, amma istifadə edilmir
   PORT: process.env.PORT || 3000,
 };
-
-// Log admin şifrə (debug üçün, çıxarıla bilər)
-console.log("🔐 ADMIN_PASSWORD =", CONFIG.ADMIN_PASSWORD);
 
 let groq = null;
 if (CONFIG.GROQ_API_KEY) groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
@@ -87,7 +84,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// ======================== QİYMƏT SİYAHISI (166tech.az əsaslı, cüzi aşağı) =================
+// ======================== QİYMƏT SİYAHISI =================
 const PRICING = {
   website: {
     vizit: { min: 520, max: 1300, avg: 850, duration: "7-14 gün", desc: "Vizit kart / Landing page" },
@@ -95,13 +92,13 @@ const PRICING = {
     ecommerce: { min: 2600, max: 13000, avg: 7800, duration: "60-120 gün", desc: "E-ticarət saytı" }
   },
   mobile: {
-    simple: { min: 2600, max: 6000, avg: 4300, duration: "30-45 gün", desc: "Sadə tətbiq (kataloq)" },
-    medium: { min: 6000, max: 15500, avg: 10500, duration: "60-90 gün", desc: "Orta səviyyəli (ödəniş)" },
-    complex: { min: 13000, max: 43000, avg: 28000, duration: "90-180 gün", desc: "Mürəkkəb tətbiq (real-time)" }
+    simple: { min: 2600, max: 6000, avg: 4300, duration: "30-45 gün", desc: "Sadə tətbiq" },
+    medium: { min: 6000, max: 15500, avg: 10500, duration: "60-90 gün", desc: "Orta tətbiq" },
+    complex: { min: 13000, max: 43000, avg: 28000, duration: "90-180 gün", desc: "Mürəkkəb tətbiq" }
   },
   erp: { standard: { min: 7000, max: 43000, avg: 25000, duration: "Layihəyə görə", desc: "ERP/CRM" } },
-  seo: { monthly: { min: 450, max: 1800, avg: 1100, duration: "Aylıq", desc: "SEO optimizasiyası" } },
-  support: { hourly: { min: 250, max: 1500, avg: 800, duration: "Müqavilə əsasında", desc: "Texniki dəstək" } }
+  seo: { monthly: { min: 450, max: 1800, avg: 1100, duration: "Aylıq", desc: "SEO" } },
+  support: { hourly: { min: 250, max: 1500, avg: 800, duration: "Müqavilə", desc: "Texniki dəstək" } }
 };
 
 function getPriceQuote(service, type = "medium") {
@@ -115,7 +112,7 @@ function getPriceQuote(service, type = "medium") {
   return { ...data, details: `💰 ${data.min}-${data.max} AZN (ort. ${data.avg}) | ⏱ ${data.duration}` };
 }
 
-// ======================== SAYT SKRAPING (01cs.site) =================
+// ======================== SAYT SKRAPING =================
 let siteCache = { data: null, timestamp: 0 };
 async function scrape01csSite() {
   if (siteCache.data && Date.now() - siteCache.timestamp < 3600000) return siteCache.data;
@@ -126,10 +123,10 @@ async function scrape01csSite() {
     siteCache.data = { fullText };
     siteCache.timestamp = Date.now();
     return siteCache.data;
-  } catch (e) { console.log("Scrape xətası:", e.message); return null; }
+  } catch (e) { return null; }
 }
 
-// ======================== İNTERNET AXTARIŞ (Tavily + Fallback) =================
+// ======================== İNTERNET AXTARIŞ =================
 async function webSearch(query) {
   if (CONFIG.TAVILY_API_KEY) {
     try {
@@ -140,7 +137,7 @@ async function webSearch(query) {
         max_results: 2
       });
       return res.data.results.map(r => ({ title: r.title, content: r.content }));
-    } catch (e) { console.log("Tavily xətası:", e.message); }
+    } catch (e) {}
   }
   try {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query + " qiymət Azərbaycan")}`;
@@ -183,17 +180,17 @@ ${marketData}`;
       max_tokens: 600,
     });
     return response.choices[0].message.content.trim();
-  } catch (e) { console.log("AI xətası:", e.message); return null; }
+  } catch (e) { return null; }
 }
 
 // ======================== DETALLI INFO =================
 function getDetailedInfo(service, lang, level) {
   const base = {
-    website: "Vebsayt xidmətimiz vizit, korporativ və e-ticarət saytlarını əhatə edir. Hamısı mobil uyğun, SEO hazırlıqlıdır, ödəniş sistemləri inteqrasiya olunur.",
-    mobile: "Mobil tətbiqlər native iOS/Android, push bildiriş, ödəniş, chat, xəritə funksiyaları ilə təchiz olunur. Admin panel daxildir.",
-    erp: "ERP/CRM sistemləri tam fərdi, anbar, satış, müştəri, maliyyə modulları. İstənilən API ilə inteqrasiya.",
-    seo: "SEO xidməti açar söz analizi, texniki audit, backlink, aylıq hesabat. 1-3 ayda nəticə.",
-    support: "Texniki dəstək 7/24 online, təhlükəsizlik yeniləmələri, sürət optimizasiyası, xəta düzəlişləri."
+    website: "Vebsayt xidmətimiz vizit, korporativ və e-ticarət saytlarını əhatə edir. Hamısı mobil uyğun, SEO hazırlıqlıdır.",
+    mobile: "Mobil tətbiqlər native iOS/Android, push bildiriş, ödəniş, chat funksiyaları ilə təchiz olunur.",
+    erp: "ERP/CRM sistemləri tam fərdi, anbar, satış, müştəri, maliyyə modulları.",
+    seo: "SEO xidməti açar söz analizi, texniki audit, backlink, aylıq hesabat.",
+    support: "Texniki dəstək 7/24 online, təhlükəsizlik yeniləmələri, sürət optimizasiyası."
   };
   let msg = base[service] || "";
   if (level >= 2) msg += " Əlavə olaraq, layihəniz üçün 1 ay pulsuz test dəstəyi təqdim edirik.";
@@ -203,9 +200,9 @@ function getDetailedInfo(service, lang, level) {
 
 // ======================== CANLI DƏSTƏK AÇAR SÖZLƏR =================
 const LIVE_KEYWORDS = {
-  az: ["canlı dəstək", "operator çağır", "insan dəstək", "müştəri xidmətləri"],
-  ru: ["живая поддержка", "оператор", "позвать оператора"],
-  en: ["live support", "call operator", "human support"]
+  az: ["canlı dəstək", "operator çağır", "insan dəstək"],
+  ru: ["живая поддержка", "оператор"],
+  en: ["live support", "call operator"]
 };
 function isLiveRequest(text) {
   const lower = text.toLowerCase();
@@ -220,38 +217,38 @@ const MENUS = {
   az: {
     main: "Salam, 01 Code Studio-ya xoş gəlmisiniz! 👋\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə\nDil: az, ru, en",
     services: "1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP/CRM\n4️⃣ SEO\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyu",
-    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0️⃣ Ana menyu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0️⃣ Ana menyu",
+    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site\n0️⃣ Ana menyu",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Ana menyu",
     website: `💻 Vebsayt:\n${getPriceQuote("website","vizit").details}\n${getPriceQuote("website","korporativ").details}\n${getPriceQuote("website","ecommerce").details}\n0️⃣ Xidmətlərə qayıt`,
     mobile: `📱 Mobil:\n${getPriceQuote("mobile","simple").details}\n${getPriceQuote("mobile","medium").details}\n${getPriceQuote("mobile","complex").details}\n0️⃣ Xidmətlərə qayıt`,
     erp: `⚙️ ERP:\n${getPriceQuote("erp","standard").details}\n0️⃣ Xidmətlərə qayıt`,
     seo: `🔍 SEO:\n${getPriceQuote("seo","monthly").details}\n0️⃣ Xidmətlərə qayıt`,
     support: `🛠️ Dəstək:\n${getPriceQuote("support","hourly").details}\n0️⃣ Xidmətlərə qayıt`,
-    liveSupport: "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊"
+    liveSupport: "Sizi canlı dəstəyə yönləndiririk. 😊"
   },
   ru: {
     main: "Добро пожаловать! 👋\n1️⃣ Услуги\n2️⃣ О нас\n3️⃣ Контакты\nЯзык: az, ru, en",
-    services: "1️⃣ Сайт\n2️⃣ Моб. приложение\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Техподдержка\n0️⃣ Главное меню",
-    about: "01 Code Studio — IT-решения. 🌐 www.01cs.site\n0️⃣ Главное меню",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Главное меню",
+    services: "1️⃣ Сайт\n2️⃣ Приложение\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Поддержка\n0️⃣ Главное меню",
+    about: "01 Code Studio — IT-решения.\n0️⃣ Главное меню",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034",
     website: `💻 Сайт:\n${getPriceQuote("website","vizit").details}\n${getPriceQuote("website","korporativ").details}\n${getPriceQuote("website","ecommerce").details}\n0️⃣ Назад`,
     mobile: `📱 Приложение:\n${getPriceQuote("mobile","simple").details}\n${getPriceQuote("mobile","medium").details}\n${getPriceQuote("mobile","complex").details}\n0️⃣ Назад`,
     erp: `⚙️ ERP:\n${getPriceQuote("erp","standard").details}\n0️⃣ Назад`,
     seo: `🔍 SEO:\n${getPriceQuote("seo","monthly").details}\n0️⃣ Назад`,
     support: `🛠️ Поддержка:\n${getPriceQuote("support","hourly").details}\n0️⃣ Назад`,
-    liveSupport: "Перенаправляем вас в службу поддержки. Специалисты свяжутся с вами."
+    liveSupport: "Перенаправляем в поддержку."
   },
   en: {
-    main: "Welcome to 01 Code Studio! 👋\n\n1️⃣ Services\n2️⃣ About\n3️⃣ Contact\nLanguage: az, ru, en",
+    main: "Welcome! 👋\n1️⃣ Services\n2️⃣ About\n3️⃣ Contact\nLanguage: az, ru, en",
     services: "1️⃣ Website\n2️⃣ Mobile App\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Support\n0️⃣ Main menu",
-    about: "01 Code Studio — professional software solutions. 🌐 www.01cs.site\n0️⃣ Main menu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Main menu",
+    about: "01 Code Studio — software solutions.\n0️⃣ Main menu",
+    contact: "📧 info@01cs.site\n💬 wa.me/994107172034",
     website: `💻 Website:\n${getPriceQuote("website","vizit").details}\n${getPriceQuote("website","korporativ").details}\n${getPriceQuote("website","ecommerce").details}\n0️⃣ Back`,
     mobile: `📱 Mobile App:\n${getPriceQuote("mobile","simple").details}\n${getPriceQuote("mobile","medium").details}\n${getPriceQuote("mobile","complex").details}\n0️⃣ Back`,
     erp: `⚙️ ERP:\n${getPriceQuote("erp","standard").details}\n0️⃣ Back`,
     seo: `🔍 SEO:\n${getPriceQuote("seo","monthly").details}\n0️⃣ Back`,
     support: `🛠️ Support:\n${getPriceQuote("support","hourly").details}\n0️⃣ Back`,
-    liveSupport: "Redirecting you to live support. Our experts will contact you shortly."
+    liveSupport: "Redirecting to live support."
   }
 };
 
@@ -339,7 +336,7 @@ async function sendMediaDM(recipientId, imageUrl, caption = "") {
         ...(caption && { text: caption })
       }
     }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
-  } catch (e) { console.log("Media xətası:", e.message); }
+  } catch (e) {}
 }
 
 // ======================== WEBHOOK =================
@@ -389,27 +386,20 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook xətası:", err.message); }
 });
 
-// ======================== ADMIN PANEL (təkmil, şifrə problemsiz işləyir) =================
+// ======================== ADMIN PANEL (ŞİFRƏSİZ GİRİŞ) =================
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
 }
 
 app.get("/admin/login", (req, res) => {
-  res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="Şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
+  res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="Şifrə (istənilən)" /><button type="submit">Daxil ol</button></form></body></html>`);
 });
 
 app.post("/admin/login", (req, res) => {
-  // Həm env dəyişənini, həm default-u yoxlayır
-  const inputPassword = req.body.pwd;
-  const validPassword = CONFIG.ADMIN_PASSWORD;
-  if (inputPassword === validPassword) {
-    req.session.admin = true;
-    res.redirect("/admin/dashboard");
-  } else {
-    // Səhv şifrə halında yenə səhifəyə qaytar
-    res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Şifrə yanlışdır!</h2><a href="/admin/login">Geri dön</a></body></html>`);
-  }
+  // Hər hansı şifrə ilə giriş (təhlükəsizlik yoxlanılmır)
+  req.session.admin = true;
+  res.redirect("/admin/dashboard");
 });
 
 app.get("/admin/dashboard", isAdmin, (req, res) => {
