@@ -52,17 +52,34 @@ async function sendTelegramNotification(userId, userMessage, username = "istifad
   } catch (e) { console.log("Telegram xətası:", e.message); }
 }
 
-// ✅ Təkmilləşdirilmiş processedIds - race condition qarşısı
+// Təkmilləşdirilmiş processedIds - lock mexanizmi ilə
 const processedIds = new Map();
+const processingLocks = new Set();
+
 function isProcessed(id) {
   const now = Date.now();
   if (processedIds.has(id)) {
     const ts = processedIds.get(id);
-    if (now - ts < 600000) return true; // 10 dəqiqə
+    if (now - ts < 600000) return true;
     else processedIds.delete(id);
   }
-  processedIds.set(id, now);
   return false;
+}
+
+function markProcessed(id) {
+  processedIds.set(id, Date.now());
+}
+
+function isProcessing(id) {
+  return processingLocks.has(id);
+}
+
+function lockProcessing(id) {
+  processingLocks.add(id);
+}
+
+function unlockProcessing(id) {
+  processingLocks.delete(id);
 }
 
 const userStates = new Map();
@@ -86,7 +103,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// Xidmət təsvirləri (qısaldılmış)
+// Xidmət təsvirləri
 const SERVICE_DETAILS = {
   website: {
     az: `💻 Vebsayt Hazırlanması\n\n📌 Növlər:\n• Vizit – 520-1300 AZN (7-14 gün)\n• Korporativ – 1300-4400 AZN (30-60 gün)\n• E-ticarət – 2600-13000 AZN (60-120 gün)\n\n✨ Xüsusiyyətlər: responsive, SEO, ödəniş, admin panel, 1 ay pulsuz dəstək.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
@@ -143,34 +160,46 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-const DEFAULT_COMPANY_INFO = "01 Code Studio - Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkəti.";
+// ✅ YENİ PROMPT - mükəmməl insan dili, real məlumatlar, canlı dəstək
+const SYSTEM_PROMPT = `Sən 01 Code Studio-nun rəsmi köməkçisisən.
+
+⚠️ ÇOX VACİB QAYDALAR:
+1. Cavabların TAM BAŞA DÜŞÜLƏN, SƏHVSİZ, MƏNTİQLİ və İNSAN DANIŞIĞI KİMİ olsun.
+2. HEÇ BİR SÖZÜ TƏKRAR ETMƏ. Eyni fikri başqa cür ifadə etmə.
+3. "yəni", "belə ki", "deməli" kimi lazımsız bağlayıcılardan istifadə etmə.
+4. Hər cavabda 1-2 emoji istifadə et, amma çox da şişirtmə.
+5. Cavab uzunluğu suala uyğun olsun: qısa suala qısa, ətraflı suala ətraflı cavab ver.
+6. HEÇ VAXT UYDURMA MƏLUMAT VERMƏ!
+
+📌 ŞİRKƏT HAQQINDA DƏQİQ MƏLUMAT (BUNLARDAN KƏNARA ÇIXMA):
+- Şirkət adı: 01 Code Studio
+- Sayt: https://01cs.site
+- Təklif linki: https://01cs.site/teklif-al.html
+- Portfolio: https://01cs.site/portfolio
+- Email: info@01cs.site
+- WhatsApp: wa.me/994107172034
+- Telefon: +994107172034
+- Xidmətlər: Vebsayt (520-13000 AZN), Mobil Tətbiq (2600-43000 AZN), ERP/CRM (7000-43000 AZN), SEO (450-1800 AZN/ay), Texniki Dəstək (250-1500 AZN/saat)
+
+🚫 ƏLAQƏSİZ SUALLAR:
+Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar, tarix, coğrafiya və s.), BİRBAŞA bu cavabı yaz:
+"Bu sual mənim ixtisasım xaricindədir. Mən yalnız 01 Code Studio-nun xidmətləri haqqında məlumat verə bilərəm. 😊"
+
+🆘 CANLI DƏSTƏK:
+Əgər istifadəçi "canlı dəstək", "operator", "insan", "müştəri xidmətləri", "real dəstək", "canlı yardım", "operatör", "canlı destek", "operator çağır", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin" kimi ifadələr işlədərsə, cavabında "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊" yaz.
+
+Cavabını həmişə ${language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis"} dilində yaz.`;
 
 async function askGroq(prompt, contextService = null, language = "az") {
   if (!groqClient) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
 
-  const langInstruction = language === "az" ? "Azərbaycan dilində" : 
-                          language === "ru" ? "Rus dilində" : 
-                          "İngilis dilində";
-
-  const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. Şirkət: ${DEFAULT_COMPANY_INFO}
-
-CAVAB QAYDALARI (ÇOX VACİB):
-1. Cavabların TAM BAŞA DÜŞÜLƏN, SƏHVSİZ və MƏNTİQLİ olsun.
-2. HEÇ BİR SÖZÜ TƏKRAR ETMƏ. Eyni fikri təkrar ifadələrlə yazma.
-3. "yəni", "belə ki" kimi lazımsız bağlayıcılardan istifadə etmə.
-4. Cavabların təbii, insan danışığı kimi olsun. Rəsmi yox, dostyana ton.
-5. Hər cavabda ən azı 1 emoji istifadə et.
-6. Cavab uzunluğu sualın mürəkkəbliyinə uyğun olsun - qısa suala qısa, ətraflı suala ətraflı cavab ver.
-7. Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar), BİRBAŞA cavabını yaz:
-   "Bu sual mənim ixtisasım xaricindədir. Mən yalnız 01 Code Studio-nun xidmətləri haqqında məlumat verə bilərəm. 😊"
-8. HEÇ VAXT EYNİ CÜMLƏNİ TƏKRAR ETMƏ.
-
-${contextService ? `İstifadəçi hazırda "${contextService}" xidmətinə baxır.` : ""}
-Cavab dili: ${langInstruction}
-
-İstifadəçinin sualı: ${prompt}`;
+  let systemPrompt = SYSTEM_PROMPT.replace(/\${language}/g, language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis");
+  
+  if (contextService) {
+    systemPrompt += `\n\nİstifadəçi hazırda "${contextService}" xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ona uyğun cavablandır.`;
+  }
 
   try {
     const response = await groqClient.chat.completions.create({
@@ -179,16 +208,10 @@ Cavab dili: ${langInstruction}
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt }
       ],
-      temperature: 0.3,
-      max_tokens: 600,
+      temperature: 0.2, // Daha qəti, uydurmasız
+      max_tokens: 500,
     });
     let reply = response.choices[0]?.message?.content?.trim() || "Cavab alınmadı.";
-    // Təkrarları sil
-    const sentences = reply.split(/[.!?]+/).filter(s => s.trim().length > 10);
-    const uniqueSentences = [...new Set(sentences)];
-    if (uniqueSentences.length < sentences.length && uniqueSentences.length > 0) {
-      reply = uniqueSentences.join(". ") + ".";
-    }
     return reply;
   } catch (e) {
     console.error("Groq xətası:", e.message);
@@ -196,15 +219,33 @@ Cavab dili: ${langInstruction}
   }
 }
 
+// ✅ GENİŞLƏNDİRİLMİŞ canlı dəstək açar sözləri
 const LIVE_KEYWORDS = {
-  az: ["canli dəstək", "operator çağir", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin", "canlı dəstək", "operator cagir"],
-  ru: ["живая поддержка", "оператор", "позвать оператора"],
-  en: ["live support", "call operator", "human support"]
+  az: [
+    "canlı dəstək", "canli destek", "operator", "operatör", "operator çağır", "operator cagir",
+    "insan dəstək", "insan destek", "müştəri xidmətləri", "musteri xidmetleri",
+    "canlı dəstəyə yönləndirin", "canli destege yonlendirin",
+    "real dəstək", "real destek", "canlı yardım", "canli yardim",
+    "dəstək xidməti", "destek xidmeti", "yardım", "yardim",
+    "canlı", "canli", "dəstək", "destek"
+  ],
+  ru: [
+    "живая поддержка", "живой чат", "оператор", "позвать оператора",
+    "служба поддержки", "помощь", "человек"
+  ],
+  en: [
+    "live support", "live chat", "operator", "call operator",
+    "human support", "talk to human", "customer service",
+    "help", "support", "agent"
+  ]
 };
+
 function isLiveRequest(text) {
   const lower = text.toLowerCase();
-  for (const arr of Object.values(LIVE_KEYWORDS)) {
-    if (arr.some(kw => lower.includes(kw))) return true;
+  for (const lang in LIVE_KEYWORDS) {
+    for (const kw of LIVE_KEYWORDS[lang]) {
+      if (lower.includes(kw.toLowerCase())) return true;
+    }
   }
   return false;
 }
@@ -251,10 +292,12 @@ async function getResponse(userId, text, username = "user") {
     setUserState(userId, { language });
   }
 
+  // Dil dəyişmə
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
   if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
 
+  // Canlı dəstək - birinci prioritet
   if (isLiveRequest(raw)) {
     await sendTelegramNotification(userId, raw, username);
     setUserState(userId, { blocked: true });
@@ -280,11 +323,6 @@ async function getResponse(userId, text, username = "user") {
       return MENUS[language].contact;
     }
     const ai = await askGroq(raw, null, language);
-    if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
-      await sendTelegramNotification(userId, raw, username);
-      setUserState(userId, { blocked: true });
-      return ai;
-    }
     return ai || MENUS[language].main;
   }
 
@@ -314,11 +352,6 @@ async function getResponse(userId, text, username = "user") {
       return MENUS[language].main;
     }
     const ai = await askGroq(raw, null, language);
-    if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
-      await sendTelegramNotification(userId, raw, username);
-      setUserState(userId, { blocked: true });
-      return ai;
-    }
     return ai || MENUS[language].services;
   }
 
@@ -339,11 +372,6 @@ async function getResponse(userId, text, username = "user") {
       }
     }
     const ai = await askGroq(raw, lastService, language);
-    if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
-      await sendTelegramNotification(userId, raw, username);
-      setUserState(userId, { blocked: true });
-      return ai;
-    }
     return ai || MENUS[language].services;
   }
 
@@ -416,46 +444,40 @@ app.post("/webhook", async (req, res) => {
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
         
-        // ✅ Birinci yoxlama - əgər işlənibsə keç
+        // ✅ Lock ilə təkrar emalın qarşısı
+        if (isProcessing(commentId)) {
+          console.log(`⏭️ Şərh artıq emal olunur: ${commentId}`);
+          continue;
+        }
         if (isProcessed(commentId)) {
           console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
           continue;
         }
         
-        logAnalytics(fromUser, "comment", commentText);
-        console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
-
-        // ✅ STANDART CAVAB - yalnız bir dəfə
+        lockProcessing(commentId);
+        
         try {
+          logAnalytics(fromUser, "comment", commentText);
+          console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
+
+          // Standart cavab
           await replyToComment(commentId, "Şərhiniz DM-də cavablandırıldı ✔️");
           console.log(`💬 Şərhə standart cavab yazıldı`);
-        } catch (e) {
-          console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message || e.message);
-        }
-
-        // ✅ DM göndər (əvvəlki kimi)
-        try {
+          
+          // DM göndər
           await sendDM(commentId, MENUS.az.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
+          
+          // İşlənmiş kimi qeyd et
+          markProcessed(commentId);
         } catch (e) {
-          console.log("⚠️ DM xətası:", e.response?.data?.error?.message || e.message);
-          try {
-            await replyToComment(
-              commentId,
-              "Sizə DM göndərmək mümkün deyil. Zəhmət olmasa bizi +994107172034 nömrəsindən əlaqələndirin."
-            );
-          } catch {}
-        }
-        
-        // ✅ Race condition qarşısı - ikinci yoxlama (100ms gözlə)
-        await new Promise(resolve => setTimeout(resolve, 100));
-        if (isProcessed(commentId)) {
-          console.log(`⏭️ Race condition qarşısı alındı: ${commentId}`);
-          continue;
+          console.log("⚠️ Şərh emal xətası:", e.message);
+        } finally {
+          unlockProcessing(commentId);
         }
       }
 
-      // DM emalı (əvvəlki kimi)
+      // DM emalı
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
@@ -467,6 +489,7 @@ app.post("/webhook", async (req, res) => {
         const username = msg.sender?.username || "user";
         const response = await getResponse(senderId, text, username);
         if (response) await replyToDM(senderId, response);
+        markProcessed(msgId);
       }
     }
   } catch (err) { console.error("❌ Webhook xətası:", err.message); }
@@ -519,5 +542,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq ilə isləyir (təkmil prompt) ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Groq ilə isləyir (təkmil) ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
