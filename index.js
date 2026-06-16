@@ -18,7 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: "gemini-3.5-flash", // Sizin istədiyiniz model, FALLBACK YOXDUR
+  GEMINI_MODEL: "gemini-3.5-flash", // Sizin istədiyiniz model - dəyişilmir
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -81,124 +81,119 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// Xidmət təsvirləri (emojili)
+// Xidmət təsvirləri (qısaldılmış)
 const SERVICE_DETAILS = {
   website: {
-    az: `💻 **Vebsayt Hazırlanması**
-
-📌 Xidmət növləri:
-• Vizit kart / Landing page – 520-1300 AZN (7-14 gün)
-• Korporativ sayt – 1300-4400 AZN (30-60 gün)
-• E-ticarət saytı – 2600-13000 AZN (60-120 gün)
-
-✨ Xüsusiyyətlər:
-• 100% mobil uyğun (responsive)
-• SEO hazırlığı
-• İstənilən ödəniş sistemi inteqrasiyası
-• Admin panel
-• 1 ay pulsuz texniki dəstək
-
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlərə qayıt`,
-    ru: `💻 **Разработка веб-сайтов**\n\n📌 Типы услуг:\n• Визитка / Landing page – 520-1300 AZN (7-14 дней)\n• Корпоративный сайт – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптивный дизайн, SEO-подготовка, интеграция платёжных систем, админ-панель, 1 месяц бесплатной техподдержки.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `💻 **Website Development**\n\n📌 Service types:\n• Business card / Landing page – 520-1300 AZN (7-14 days)\n• Corporate website – 1300-4400 AZN (30-60 days)\n• E-commerce website – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive design, SEO ready, payment system integration, admin panel, 1 month free support.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    az: `💻 Vebsayt Hazırlanması\n\n📌 Növlər:\n• Vizit – 520-1300 AZN (7-14 gün)\n• Korporativ – 1300-4400 AZN (30-60 gün)\n• E-ticarət – 2600-13000 AZN (60-120 gün)\n\n✨ Xüsusiyyətlər: responsive, SEO, ödəniş, admin panel, 1 ay pulsuz dəstək.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
+    ru: `💻 Разработка сайтов\n\n📌 Типы:\n• Визитка – 520-1300 AZN (7-14 дней)\n• Корпоративный – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптив, SEO, оплата, админка, 1 месяц поддержки.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
+    en: `💻 Website Development\n\n📌 Types:\n• Business card – 520-1300 AZN (7-14 days)\n• Corporate – 1300-4400 AZN (30-60 days)\n• E-commerce – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive, SEO, payments, admin panel, 1 month support.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
   },
   mobile: {
-    az: `📱 **Mobil Tətbiq Hazırlanması**\n\n📌 Səviyyələr:\n• Sadə – 2600-6000 AZN (30-45 gün)\n• Orta – 6000-15500 AZN (60-90 gün)\n• Mürəkkəb – 13000-43000 AZN (90-180 gün)\n\n✨ Xüsusiyyətlər: Native iOS/Android, push, ödəniş, chat, GPS, admin panel.\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `📱 **Разработка мобильных приложений**\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные iOS/Android, push-уведомления, платёжные системы, чат, GPS, админ-панель.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `📱 **Mobile App Development**\n\n📌 Levels:\n• Simple – 2600-6000 AZN (30-45 days)\n• Medium – 6000-15500 AZN (60-90 days)\n• Complex – 13000-43000 AZN (90-180 days)\n\n✨ Features: Native iOS/Android, push, payments, chat, GPS, admin panel.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    az: `📱 Mobil Tətbiq\n\n📌 Səviyyələr:\n• Sadə – 2600-6000 AZN (30-45 gün)\n• Orta – 6000-15500 AZN (60-90 gün)\n• Mürəkkəb – 13000-43000 AZN (90-180 gün)\n\n✨ Xüsusiyyətlər: Native iOS/Android, push, ödəniş, chat, GPS, admin.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
+    ru: `📱 Мобильное приложение\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные, push, оплата, чат, GPS, админка.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
+    en: `📱 Mobile App\n\n📌 Levels:\n• Simple – 2600-6000 AZN (30-45 days)\n• Medium – 6000-15500 AZN (60-90 days)\n• Complex – 13000-43000 AZN (90-180 days)\n\n✨ Features: native, push, payments, chat, GPS, admin.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
   },
   erp: {
-    az: `⚙️ **ERP / CRM / Avtomatlaşdırma**\n\n📌 Modullar: Müştəri, anbar, satış, işçi, maliyyə, hesabat.\n💰 Qiymət: 7000-43000 AZN (layihəyə görə)\n⏱ Müddət: 3-8 həftə\n✨ Xüsusiyyətlər: API inteqrasiyası, real-time, çoxistifadəçili, 1 ay pulsuz test.\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `⚙️ **ERP / CRM / Автоматизация**\n\n📌 Модули: клиенты, склад, продажи, сотрудники, финансы, отчёты.\n💰 Цена: 7000-43000 AZN\n⏱ Срок: 3-8 недель\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `⚙️ **ERP / CRM / Automation**\n\n📌 Modules: customers, warehouse, sales, employees, finance, reports.\n💰 Price: 7000-43000 AZN\n⏱ Timeline: 3-8 weeks\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    az: `⚙️ ERP / CRM\n\n📌 Modullar: müştəri, anbar, satış, işçi, maliyyə, hesabat.\n💰 7000-43000 AZN (layihəyə görə)\n⏱ 3-8 həftə\n✨ API, real-time, çoxistifadəçili, 1 ay test.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
+    ru: `⚙️ ERP / CRM\n\n📌 Модули: клиенты, склад, продажи, сотрудники, финансы, отчёты.\n💰 7000-43000 AZN\n⏱ 3-8 недель\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
+    en: `⚙️ ERP / CRM\n\n📌 Modules: customers, warehouse, sales, employees, finance, reports.\n💰 7000-43000 AZN\n⏱ 3-8 weeks\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
   },
   seo: {
-    az: `🔍 **SEO Optimizasiyası**\n\n📌 Xidmət daxildir: açar söz araşdırması, texniki audit, optimizasiya, backlinklər, aylıq hesabat.\n💰 Qiymət: 450-1800 AZN/ay\n⏱ Nəticə: 1-3 ay\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `🔍 **SEO оптимизация**\n\n💰 Цена: 450-1800 AZN/мес\n⏱ Результат: 1-3 месяца\n📌 Включено: анализ, аудит, оптимизация, ссылки, отчёты.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `🔍 **SEO Optimization**\n\n💰 Price: 450-1800 AZN/month\n⏱ Results: 1-3 months\n📌 Includes: keyword research, audit, on-page, link building, reports.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    az: `🔍 SEO\n\n📌 Daxildir: açar söz, texniki audit, optimizasiya, linklər, aylıq hesabat.\n💰 450-1800 AZN/ay\n⏱ Nəticə 1-3 ay\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
+    ru: `🔍 SEO\n\n💰 450-1800 AZN/мес\n⏱ Результат 1-3 месяца\n📌 Анализ, аудит, оптимизация, ссылки, отчёты.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
+    en: `🔍 SEO\n\n💰 450-1800 AZN/month\n⏱ Results 1-3 months\n📌 Keywords, audit, on-page, links, reports.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
   },
   support: {
-    az: `🛠️ **Texniki Dəstək**\n\n📌 Xidmət daxildir: təhlükəsizlik yeniləmələri, sürət optimizasiyası, xəta düzəlişləri, yeni funksiyalar, 24/7 dəstək.\n💰 Qiymət: 250-1500 AZN/saat (və ya abunə)\n⏱ Cavab müddəti: 1-2 saat\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `🛠️ **Техническая поддержка**\n\n💰 Цена: 250-1500 AZN/час (или абонемент)\n📌 Обновления безопасности, оптимизация скорости, исправление ошибок, новые функции. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `🛠️ **Technical Support**\n\n💰 Price: 250-1500 AZN/hour (or monthly subscription)\n📌 Security updates, speed optimization, bug fixes, new features. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    az: `🛠️ Texniki Dəstək\n\n📌 Təhlükəsizlik, sürət, xəta düzəlişləri, yeni funksiyalar, 24/7.\n💰 250-1500 AZN/saat (və ya abunə)\n⏱ Cavab 1-2 saat\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
+    ru: `🛠️ Техподдержка\n\n💰 250-1500 AZN/час (или абонемент)\n📌 Безопасность, скорость, исправления, новые функции, 24/7.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
+    en: `🛠️ Support\n\n💰 250-1500 AZN/hour (or subscription)\n📌 Security, speed, fixes, new features, 24/7.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
   }
 };
 
 function getAdditionalDetail(service, lang, level) {
   const extra = {
     website: {
-      2: "Əlavə olaraq: Google Maps inteqrasiyası, onlayn randevu sistemi, blog modulu, çoxdillilik dəstəyi. Bütün layihələr GDPR uyğundur. 🌐",
-      3: "Daha ətraflı: Müştəri nümunələrimiz və portfolio üçün linkə keçin: https://01cs.site/portfolio"
+      2: "Əlavə: Google Maps, onlayn randevu, blog, çoxdillilik, GDPR. 🌐",
+      3: "Daha ətraflı: https://01cs.site/portfolio"
     },
     mobile: {
-      2: "Əlavə olaraq: Offline rejim, biometrik giriş, sosial media paylaşımı, analitik (Firebase, Mixpanel). App Store və Google Play-ə yükləmə köməyi. 📱",
-      3: "Daha ətraflı: Xüsusi tələblərinizə uyğun fərdi təklif üçün linkə keçin: https://01cs.site/teklif-al.html"
+      2: "Əlavə: Offline, biometrik, sosial paylaşım, Firebase, Mixpanel. 📱",
+      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
     },
     erp: {
-      2: "Əlavə olaraq: Mobil app (menecer üçün), təsdiq axınları, avtomatik email/sms bildirişlər, e-imza inteqrasiyası. ⚙️",
-      3: "Daha ətraflı: Biznes proseslərinizə uyğun demo üçün linkdən müraciət edin: https://01cs.site/teklif-al.html"
+      2: "Əlavə: Mobil app, təsdiq axınları, avtomatik email/sms, e-imza. ⚙️",
+      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
     },
     seo: {
-      2: "Əlavə olaraq: Lokal SEO (Google My Business), voice search optimizasiyası, Core Web Vitals, strukturlaşdırılmış məlumat. 🔍",
-      3: "Daha ətraflı: Rəqibləriniz qarşısında önə keçmək üçün linkdən pulsuz SEO audit tələb edin: https://01cs.site/teklif-al.html"
+      2: "Əlavə: Lokal SEO, voice search, Core Web Vitals, schema markup. 🔍",
+      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
     },
     support: {
-      2: "Əlavə olaraq: SLA müqaviləsi (24/7 və ya iş saatları), aylıq hesabat, prioritet dəstək xətti. 🛠️",
-      3: "Daha ətraflı: Xüsusi dəstək paketlərimiz üçün linkə keçin: https://01cs.site/teklif-al.html"
+      2: "Əlavə: SLA, aylıq hesabat, prioritet xətt. 🛠️",
+      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
     }
   };
-  if (level === 2) return extra[service]?.[2] || "Əlavə məlumat üçün linkə keçin: https://01cs.site/teklif-al.html";
-  if (level >= 3) return extra[service]?.[3] || "Bütün detallar üçün linkdən təklif alın: https://01cs.site/teklif-al.html";
+  if (level === 2) return extra[service]?.[2] || "Əlavə məlumat: https://01cs.site/teklif-al.html";
+  if (level >= 3) return extra[service]?.[3] || "Bütün detallar: https://01cs.site/teklif-al.html";
   return "";
 }
 
+// Keşlənmiş sayt skrepi (1 saat)
+let siteCache = { data: null, timestamp: 0 };
 async function scrape01csSite() {
+  const now = Date.now();
+  if (siteCache.data && now - siteCache.timestamp < 3600000) {
+    return siteCache.data;
+  }
   try {
-    const { data } = await axios.get("https://01cs.site", { timeout: 5000 });
+    const { data } = await axios.get("https://01cs.site", { timeout: 3000 });
     const $ = cheerio.load(data);
-    return { fullText: $("body").text().substring(0, 1500) };
-  } catch (e) { return null; }
+    const fullText = $("body").text().substring(0, 800);
+    siteCache.data = { fullText };
+    siteCache.timestamp = now;
+    return siteCache.data;
+  } catch (e) {
+    console.log("Skrep xətası (keş istifadə olunur):", e.message);
+    return siteCache.data || null;
+  }
 }
 
+// Sürətli AI sorğusu (model toxunulmur)
 async function askGemini(prompt, contextService = null, language = "az") {
   if (!genAI) {
-    return "Üzr istəyirik, hazırda AI xidməti işləmir. Zəhmət olmasa, sualınızı menyu vasitəsilə göndərin. 😊";
+    return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
   const siteInfo = await scrape01csSite();
-  const companyInfo = siteInfo?.fullText ? siteInfo.fullText.substring(0, 800) : "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkətidir.";
+  const companyInfo = siteInfo?.fullText ? siteInfo.fullText.substring(0, 500) : "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərir.";
 
-  const systemPrompt = `Sən 01 Code Studio-nun rəsmi, dostyana və mehriban köməkçisisən. 😊
+  // Qısaldılmış prompt
+  const systemPrompt = `Sən 01 Code Studio-nun dostyana köməkçisisən. 😊
 
-Şirkət məlumatı: ${companyInfo}
+Şirkət: ${companyInfo}
 
-Cavab qaydaları:
-- Hər cavabında ən azı 1 emoji istifadə et. (😊, 🚀, 💡, 👋, ✨, 🎯, 💬, 📱, 💻, ⚙️, 🔍, 🛠️)
-- Cavabların qısa, ancaq faydalı olsun. Maksimum 3-4 cümlə.
-- İstifadəçi ilə söhbət etdiyini unutma: "Salam, necəsiniz?" kimi suallara da cavab ver.
-- Əgər istifadəçi maraq göstərirsə, əlavə suallar təklif et (məsələn, "Daha ətraflı məlumat istəyirsiniz? 😊").
-- Qiymət soruşduqda: "Bizim ${contextService || 'bu'} xidmətimiz üçün qiymətlər müxtəlifdir. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰"
-- Yalnız tamamilə əlaqəsiz suallarda (hava, futbol, siyasət) "Bu sual mənim ixtisasım xaricindədir. Zəhmət olmasa, 01 Code Studio xidmətləri ilə bağlı sualınızı yazın. 😊" cavabını ver.
+Qaydalar:
+- Cavabında ən azı 1 emoji istifadə et.
+- Maksimum 3-4 cümlə, qısa və faydalı.
+- İstifadəçi ilə söhbət et.
+- Əlaqəsiz suallarda: "Bu sual mənim ixtisasım xaricindədir. Zəhmət olmasa, 01 Code Studio haqqında sual yazın. 😊"
 
-Cavab dili: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" : "İngiliscə"}
-
-İstifadəçinin sualı: ${prompt}
-${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
+Dil: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" : "İngiliscə"}
+${contextService ? `İstifadəçi ${contextService} xidmətinə baxır.` : ""}
+İstifadəçi: ${prompt}`;
 
   try {
-    // Yalnız sizin istədiyiniz model istifadə olunur - FALLBACK YOXDUR
-    const modelName = CONFIG.GEMINI_MODEL;
-    console.log(`🤖 İstifadə olunan model: ${modelName}`);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent(systemPrompt);
+    const model = genAI.getGenerativeModel({ model: CONFIG.GEMINI_MODEL });
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: { maxOutputTokens: 200, temperature: 0.7 }
+    });
     let reply = result.response.text().trim();
-    if (reply.length > 800) reply = reply.substring(0, 800) + "...";
+    if (reply.length > 500) reply = reply.substring(0, 500) + "...";
     if (!reply) throw new Error("Boş cavab");
     return reply;
   } catch (e) {
-    console.error(`❌ Gemini xətası (${CONFIG.GEMINI_MODEL}):`, e.message);
-    return "Üzr istəyirik, texniki problem səbəbindən cavab verə bilmirəm. Sualınızı bir az sonra təkrarlayın və ya bizimlə əlaqə saxlayın: https://01cs.site 😊";
+    console.error("Gemini xətası:", e.message);
+    return "Üzr istəyirik, texniki problem. Sualınızı bir az sonra təkrarlayın və ya https://01cs.site 😊";
   }
 }
 
@@ -252,7 +247,6 @@ async function getResponse(userId, text, username = "user") {
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
 
-  // Dil dəyərinin etibarlılığını yoxla
   if (!language || !["az", "ru", "en"].includes(language)) {
     language = "az";
     setUserState(userId, { language });
@@ -340,7 +334,7 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { detailLevel: newLevel });
       const extra = getAdditionalDetail(lastService, language, newLevel);
       if (extra) {
-        return `📌 **Əlavə məlumat (${newLevel}/3):**\n${extra}\n\n0️⃣ Xidmətlərə qayıt`;
+        return `📌 Əlavə məlumat (${newLevel}/3):\n${extra}\n\n0️⃣ Xidmətlərə qayıt`;
       } else {
         return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰\n\n0️⃣ Xidmətlərə qayıt";
       }
@@ -490,5 +484,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini AI (gemini-3.5-flash) ilə isləyir ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Gemini ilə isləyir, sürət optimizasiya olunub ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
