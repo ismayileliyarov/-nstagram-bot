@@ -1,6 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-const cheerio = require("cheerio");
 const session = require("express-session");
 const fs = require("fs");
 const Groq = require("groq-sdk");
@@ -8,441 +7,724 @@ const Groq = require("groq-sdk");
 const app = express();
 app.use(express.json());
 app.use(session({
-  secret: "01cs_very_secret_key",
+  secret: process.env.SESSION_SECRET || "01cs_session_2024",
   resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false, httpOnly: true, sameSite: 'lax' }
+  saveUninitialized: false,
+  cookie: { secure: false, httpOnly: true }
 }));
 
+// ════════════════════════════════════════════════════
+// KONFİQURASİYA
+// ════════════════════════════════════════════════════
 const CONFIG = {
-  VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
-  IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
-  GROQ_API_KEY: process.env.GROQ_API_KEY,
-  GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
-  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
-  TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
-  TAVILY_API_KEY: process.env.TAVILY_API_KEY,
-  PORT: process.env.PORT || 3000,
+  VERIFY_TOKEN:       process.env.VERIFY_TOKEN || "01csigbot_secret",
+  IG_ACCESS_TOKEN:    process.env.IG_ACCESS_TOKEN || "",
+  GROQ_API_KEY:       process.env.GROQ_API_KEY || "",
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || "",
+  TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID || "",
+  ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
+  PORT:               process.env.PORT || 3000,
 };
 
-let groqClient = null;
+// Groq başlat
+let groq = null;
 if (CONFIG.GROQ_API_KEY) {
-  groqClient = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+  groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+  console.log("✅ Groq AI hazırdır (llama-3.3-70b-versatile)");
+} else {
+  console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
 
+// ════════════════════════════════════════════════════
+// ANALİTİKA
+// ════════════════════════════════════════════════════
 const ANALYTICS_FILE = "/tmp/analytics.json";
-function logAnalytics(userId, action, details = "") {
+
+function logEvent(userId, action, details = "") {
   try {
     let data = [];
-    if (fs.existsSync(ANALYTICS_FILE)) data = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
-    data.push({ userId, action, details, timestamp: new Date().toISOString() });
-    if (data.length > 1500) data = data.slice(-1200);
-    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(data, null, 2));
+    if (fs.existsSync(ANALYTICS_FILE)) {
+      data = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
+    }
+    data.push({
+      userId: String(userId).slice(-8),
+      action,
+      details: String(details).slice(0, 150),
+      time: new Date().toISOString()
+    });
+    if (data.length > 2000) data = data.slice(-1500);
+    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(data));
   } catch (e) {}
 }
 
-async function sendTelegramNotification(userId, userMessage, username = "istifadəçi") {
+// ════════════════════════════════════════════════════
+// TELEGRAM BİLDİRİŞ
+// ════════════════════════════════════════════════════
+async function notifyTelegram(userId, message, username = "") {
   if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
-  const text = `🆘 CANLI DƏSTƏK TƏLƏBİ\n\nİstifadəçi: @${username}\nID: ${userId}\nMesaj: ${userMessage.substring(0, 200)}`;
   try {
-    await axios.post(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: CONFIG.TELEGRAM_CHAT_ID,
-      text,
-    });
-  } catch (e) { console.log("Telegram xətası:", e.message); }
+    await axios.post(
+      `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: CONFIG.TELEGRAM_CHAT_ID,
+        text: `🔔 CANLI DƏSTƏK TƏLƏBİ\n\n👤 @${username || "istifadəçi"}\n🆔 ${String(userId).slice(-8)}\n💬 ${String(message).slice(0, 300)}`
+      }
+    );
+  } catch (e) {
+    console.log("Telegram xətası:", e.message);
+  }
 }
 
+// ════════════════════════════════════════════════════
+// TEKRARİ ÖNLƏMƏ
+// ════════════════════════════════════════════════════
 const processedIds = new Map();
 const processingLocks = new Set();
 
 function isProcessed(id) {
   const now = Date.now();
-  if (processedIds.has(id)) {
-    const ts = processedIds.get(id);
-    if (now - ts < 600000) return true;
-    else processedIds.delete(id);
+  for (const [k, v] of processedIds.entries()) {
+    if (now - v > 600000) processedIds.delete(k);
   }
+  if (processedIds.has(id)) return true;
+  processedIds.set(id, now);
   return false;
 }
 
-function markProcessed(id) {
-  processedIds.set(id, Date.now());
-}
+function isLocked(id) { return processingLocks.has(id); }
+function lock(id) { processingLocks.add(id); }
+function unlock(id) { processingLocks.delete(id); }
 
-function isProcessing(id) {
-  return processingLocks.has(id);
-}
+// ════════════════════════════════════════════════════
+// İSTİFADƏÇİ VƏZİYYƏTLƏRİ
+// ════════════════════════════════════════════════════
+const users = new Map();
 
-function lockProcessing(id) {
-  processingLocks.add(id);
-}
-
-function unlockProcessing(id) {
-  processingLocks.delete(id);
-}
-
-const userStates = new Map();
-const STATE_TIMEOUT = 30 * 60 * 1000;
-
-function getUserState(userId) {
-  const now = Date.now();
-  const record = userStates.get(userId);
-  if (!record) return { state: "main", lastService: null, language: "az", blocked: false, detailLevel: 1 };
-  if (now - record.lastActive > STATE_TIMEOUT) {
-    userStates.delete(userId);
-    return { state: "main", lastService: null, language: "az", blocked: false, detailLevel: 1 };
+function getUser(userId) {
+  if (!users.has(userId)) {
+    users.set(userId, {
+      state: "main",
+      language: "az",
+      lastService: null,
+      blocked: false,
+      lastActive: Date.now(),
+      messageCount: 0,
+      history: []
+    });
   }
-  record.lastActive = now;
-  userStates.set(userId, record);
-  return { ...record };
-}
-
-function setUserState(userId, updates) {
-  const existing = userStates.get(userId) || { lastActive: Date.now() };
-  userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
-}
-
-const SERVICE_DETAILS = {
-  website: {
-    az: `💻 Vebsayt Hazırlanması\n\n📌 Növlər:\n• Vizit – 520-1300 AZN (7-14 gün)\n• Korporativ – 1300-4400 AZN (30-60 gün)\n• E-ticarət – 2600-13000 AZN (60-120 gün)\n\n✨ Xüsusiyyətlər: responsive, SEO, ödəniş, admin panel, 1 ay pulsuz dəstək.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
-    ru: `💻 Разработка сайтов\n\n📌 Типы:\n• Визитка – 520-1300 AZN (7-14 дней)\n• Корпоративный – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптив, SEO, оплата, админка, 1 месяц поддержки.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
-    en: `💻 Website Development\n\n📌 Types:\n• Business card – 520-1300 AZN (7-14 days)\n• Corporate – 1300-4400 AZN (30-60 days)\n• E-commerce – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive, SEO, payments, admin panel, 1 month support.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
-  },
-  mobile: {
-    az: `📱 Mobil Tətbiq\n\n📌 Səviyyələr:\n• Sadə – 2600-6000 AZN (30-45 gün)\n• Orta – 6000-15500 AZN (60-90 gün)\n• Mürəkkəb – 13000-43000 AZN (90-180 gün)\n\n✨ Xüsusiyyətlər: Native iOS/Android, push, ödəniş, chat, GPS, admin.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
-    ru: `📱 Мобильное приложение\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные, push, оплата, чат, GPS, админка.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
-    en: `📱 Mobile App\n\n📌 Levels:\n• Simple – 2600-6000 AZN (30-45 days)\n• Medium – 6000-15500 AZN (60-90 days)\n• Complex – 13000-43000 AZN (90-180 days)\n\n✨ Features: native, push, payments, chat, GPS, admin.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
-  },
-  erp: {
-    az: `⚙️ ERP / CRM\n\n📌 Modullar: müştəri, anbar, satış, işçi, maliyyə, hesabat.\n💰 7000-43000 AZN (layihəyə görə)\n⏱ 3-8 həftə\n✨ API, real-time, çoxistifadəçili, 1 ay test.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
-    ru: `⚙️ ERP / CRM\n\n📌 Модули: клиенты, склад, продажи, сотрудники, финансы, отчёты.\n💰 7000-43000 AZN\n⏱ 3-8 недель\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
-    en: `⚙️ ERP / CRM\n\n📌 Modules: customers, warehouse, sales, employees, finance, reports.\n💰 7000-43000 AZN\n⏱ 3-8 weeks\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
-  },
-  seo: {
-    az: `🔍 SEO\n\n📌 Daxildir: açar söz, texniki audit, optimizasiya, linklər, aylıq hesabat.\n💰 450-1800 AZN/ay\n⏱ Nəticə 1-3 ay\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
-    ru: `🔍 SEO\n\n💰 450-1800 AZN/мес\n⏱ Результат 1-3 месяца\n📌 Анализ, аудит, оптимизация, ссылки, отчёты.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
-    en: `🔍 SEO\n\n💰 450-1800 AZN/month\n⏱ Results 1-3 months\n📌 Keywords, audit, on-page, links, reports.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
-  },
-  support: {
-    az: `🛠️ Texniki Dəstək\n\n📌 Təhlükəsizlik, sürət, xəta düzəlişləri, yeni funksiyalar, 24/7.\n💰 250-1500 AZN/saat (və ya abunə)\n⏱ Cavab 1-2 saat\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Xidmətlərə qayıt`,
-    ru: `🛠️ Техподдержка\n\n💰 250-1500 AZN/час (или абонемент)\n📌 Безопасность, скорость, исправления, новые функции, 24/7.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Назад`,
-    en: `🛠️ Support\n\n💰 250-1500 AZN/hour (or subscription)\n📌 Security, speed, fixes, new features, 24/7.\n🔗 https://01cs.site/teklif-al.html\n0️⃣ Back`
+  const u = users.get(userId);
+  if (Date.now() - u.lastActive > 1800000) {
+    u.state = "main";
+    u.history = [];
   }
-};
-
-function getAdditionalDetail(service, lang, level) {
-  const extra = {
-    website: {
-      2: "Əlavə: Google Maps, onlayn randevu, blog, çoxdillilik, GDPR. 🌐",
-      3: "Daha ətraflı: https://01cs.site/portfolio"
-    },
-    mobile: {
-      2: "Əlavə: Offline, biometrik, sosial paylaşım, Firebase, Mixpanel. 📱",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    erp: {
-      2: "Əlavə: Mobil app, təsdiq axınları, avtomatik email/sms, e-imza. ⚙️",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    seo: {
-      2: "Əlavə: Lokal SEO, voice search, Core Web Vitals, schema markup. 🔍",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    support: {
-      2: "Əlavə: SLA, aylıq hesabat, prioritet xətt. 🛠️",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    }
-  };
-  if (level === 2) return extra[service]?.[2] || "Əlavə məlumat: https://01cs.site/teklif-al.html";
-  if (level >= 3) return extra[service]?.[3] || "Bütün detallar: https://01cs.site/teklif-al.html";
-  return "";
+  u.lastActive = Date.now();
+  u.messageCount++;
+  return u;
 }
 
-// ✅ YENİ TƏKMİL PROMPT - insan kimi, qrammatik cəhətdən düzgün
-function getSystemPrompt(language) {
-  const langName = language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis";
-  return `Sən 01 Code Studio-nun rəsmi köməkçisisən. İnsanlarla təbii, rahat və mehriban danışan bir assistantsan.
-
-⚠️ ƏN VACİB QAYDALAR (BUNLARA MÜTLƏQ ƏMƏL ET):
-
-1. DİL VƏ QRAMMATİKA: Cavabların seçilmiş dilin (${langName}) qrammatikasına TAM UYĞUN olsun. HEÇ BİR HƏRF, DURĞU İŞARƏSİ VƏ YA QRAMMATİK SƏHV ETMƏ. Cümlələr düzgün qurulsun.
-
-2. İNSAN DANIŞIĞI: Elə danış ki, sanki səni real insan yazıb. Rəsmi yox, SADƏ, TƏBİİ və RAHAT üslubda yaz. Gündəlik danışıq dilini istifadə et.
-
-3. TƏKRAR ETMƏ: Eyni fikri, eyni sözləri təkrar etmə. Hər dəfə fərqli ifadə ilə yaz.
-
-4. UYDURMA: Heç vaxt şirkət haqqında uydurma məlumat vermə. Yalnız aşağıda verilən dəqiq məlumatlardan istifadə et.
-
-5. EMOJİ: Hər cavabda 1-2 emoji istifadə et, amma çox da şişirtmə. Təbii olsun.
-
-6. CAVAB UZUNLUĞU: Suala uyğun olsun. Qısa suala qısa, ətraflı suala ətraflı cavab ver.
-
-📌 ŞİRKƏT HAQQINDA DƏQİQ MƏLUMAT (BU MƏLUMATLARDAN KƏNARA ÇIXMA):
-- Şirkət adı: 01 Code Studio
-- Sayt: https://01cs.site
-- Təklif linki: https://01cs.site/teklif-al.html
-- Portfolio: https://01cs.site/portfolio
-- Email: info@01cs.site
-- WhatsApp: wa.me/994107172034
-- Telefon: +994107172034
-- Xidmətlər və qiymətlər:
-  • Vebsayt: Vizit 520-1300 AZN, Korporativ 1300-4400 AZN, E-ticarət 2600-13000 AZN
-  • Mobil Tətbiq: Sadə 2600-6000 AZN, Orta 6000-15500 AZN, Mürəkkəb 13000-43000 AZN
-  • ERP/CRM: 7000-43000 AZN (layihəyə görə)
-  • SEO: 450-1800 AZN/ay
-  • Texniki Dəstək: 250-1500 AZN/saat
-
-🚫 ƏLAQƏSİZ SUALLAR:
-Sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar, tarix, coğrafiya və s.), bu cavabı yaz:
-"Bu sual mənim ixtisasım xaricindədir. Mən yalnız 01 Code Studio-nun xidmətləri haqqında məlumat verə bilərəm. 😊"
-
-🆘 CANLI DƏSTƏK:
-İstifadəçi "canlı dəstək", "operator", "insan", "müştəri xidmətləri" və ya oxşar ifadələr işlədərsə, bu cavabı yaz:
-"Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊"`;
+function setState(userId, updates) {
+  const u = getUser(userId);
+  Object.assign(u, updates);
 }
 
-async function askGroq(prompt, contextService = null, language = "az") {
-  if (!groqClient) {
-    return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
-  }
+function addHistory(userId, role, content) {
+  const u = getUser(userId);
+  u.history.push({ role, content });
+  if (u.history.length > 10) u.history = u.history.slice(-10);
+}
 
-  let systemPrompt = getSystemPrompt(language);
-  
-  if (contextService) {
-    systemPrompt += `\n\nİstifadəçi hazırda "${contextService}" xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ona uyğun cavablandır.`;
-  }
+// ════════════════════════════════════════════════════
+// GROQ AI
+// ════════════════════════════════════════════════════
+const SYSTEM_PROMPT = `Sən 01 Code Studio şirkətinin rəsmi Instagram köməkçisisən.
+
+ŞİRKƏT HAQQINDA:
+- Ad: 01 Code Studio
+- Sayt: www.01cs.site | Instagram: @01cs.az
+- WhatsApp: +994 10 717 20 34 | Email: info@01cs.site
+- İş saatları: 7/24
+
+XİDMƏTLƏR VƏ QİYMƏTLƏR:
+1. Vebsayt hazırlanması:
+   - Vizit / Landing page: 520–1300 AZN (7–14 gün)
+   - Korporativ sayt: 1300–4400 AZN (30–60 gün)
+   - E-ticarət saytı: 2600–13000 AZN (60–120 gün)
+   - Daxildir: responsiv dizayn, SEO, admin panel, ödəniş sistemi, 1 ay pulsuz texniki dəstək
+
+2. Mobil tətbiq (iOS və Android):
+   - Sadə tətbiq: 2600–6000 AZN (30–45 gün)
+   - Orta səviyyəli: 6000–15500 AZN (60–90 gün)
+   - Mürəkkəb tətbiq: 13000–43000 AZN (90–180 gün)
+   - Daxildir: push bildiriş, ödəniş, GPS, chat, admin panel
+
+3. ERP / CRM / Avtomatlaşdırma:
+   - Qiymət: 7000–43000 AZN (layihəyə görə)
+   - Müddət: 3–8 həftə
+   - Modullar: müştəri, anbar, satış, maliyyə, hesabat
+
+4. SEO optimizasiyası:
+   - Qiymət: 450–1800 AZN/ay
+   - Nəticə: 1–3 ay ərzində görünən irəliləyiş
+
+5. Texniki dəstək:
+   - Qiymət: 250–1500 AZN/saat (və ya aylıq abunə)
+   - Cavab müddəti: 1–2 saat (kritik xətalar)
+
+DAVRANISH QAYDALARı:
+
+DİL VƏ ÜSLUB:
+- Həmişə təbii, mehriban və peşəkar Azərbaycan dilində danış
+- Qrammatik səhv buraxma — cümlələr düzgün qurulsun
+- Rəsmi deyil, adi söhbət üslubunda danış — sanki tanış biri kimi
+- Müştərini "siz" ilə müraciət et
+- Hər cavabda 1–2 emoji istifadə et, çox işlətmə
+
+CAVAB VERMƏ:
+- Müştərinin sualına tam uyğun cavab ver
+- Qısa suala qısa, ətraflı suala ətraflı cavab ver
+- Eyni fikri təkrar etmə
+- Heç vaxt uydurma məlumat vermə
+- Bilmirsənsə, WhatsApp-a yönləndir
+
+QIYMƏT SUALLARINDA:
+- Dəqiq qiymətləri söylə (yuxarıdakı cədvələ uyğun)
+- Həmişə əlavə et: "Dəqiq qiymət layihənin tələbinə görə müəyyən edilir"
+- Təklif formu üçün yönləndir: https://01cs.site/teklif-al.html
+
+ƏLAQƏSİZ SUALLAR:
+- Futbol, hava, siyasət, tarix, şəxsi suallar kimi şirkətlə əlaqəsiz mövzularda bu cavabı ver:
+  "Bu mövzu mənim ixtisasım xaricindədir. Sizə 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
+
+CANLI DƏSTƏK:
+- "operator", "canlı dəstək", "insan" kimi sözlər yazıldıqda bu cavabı ver:
+  "Sizi dərhal canlı dəstəyə yönləndiririk. Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq 🙏"`;
+
+async function askAI(userId, message, lastService) {
+  if (!groq) return null;
+
+  const u = getUser(userId);
+  const lang = u.language || "az";
+
+  const langNote = lang === "ru"
+    ? "Müştəri Rusca yazıb. Cavabı Rusca ver."
+    : lang === "en"
+    ? "The user wrote in English. Reply in English."
+    : "";
+
+  const serviceNote = lastService
+    ? `İstifadəçi hazırda "${lastService}" xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ətraflı cavabla.`
+    : "";
+
+  const systemWithContext = `${SYSTEM_PROMPT}${langNote ? "\n\n" + langNote : ""}${serviceNote ? "\n\n" + serviceNote : ""}`;
+
+  // Söhbət tarixçəsi ilə birlikdə göndər
+  const messages = [
+    { role: "system", content: systemWithContext },
+    ...u.history.slice(-6),
+    { role: "user", content: message }
+  ];
 
   try {
-    const response = await groqClient.chat.completions.create({
-      model: CONFIG.GROQ_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 600,
+    const res = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages,
+      temperature: 0.4,
+      max_tokens: 500,
     });
-    let reply = response.choices[0]?.message?.content?.trim();
-    if (!reply) {
-      return "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
-    }
+
+    const reply = res.choices[0]?.message?.content?.trim();
+    if (!reply) return null;
+
+    // Tarixçəyə əlavə et
+    addHistory(userId, "user", message);
+    addHistory(userId, "assistant", reply);
+
     return reply;
   } catch (e) {
-    console.error("Groq xətası:", e.message);
-    return "Üzr istəyirik, texniki problem yarandı. Sualınızı bir az sonra təkrarlayın. 😊";
+    console.log("Groq xətası:", e.message);
+    return null;
   }
 }
 
-// ✅ GENİŞLƏNDİRİLMİŞ CANLI DƏSTƏK AÇAR SÖZLƏRİ
-const LIVE_KEYWORDS = {
-  az: [
-    "canlı dəstək", "canli destek", "operator", "operatör", "operator çağır", "operator cagir",
-    "insan dəstək", "insan destek", "müştəri xidmətləri", "musteri xidmetleri",
-    "canlı dəstəyə yönləndirin", "canli destege yonlendirin",
-    "real dəstək", "real destek", "canlı yardım", "canli yardim",
-    "dəstək xidməti", "destek xidmeti", "yardım", "yardim",
-    "canlı", "canli", "dəstək", "destek"
-  ],
-  ru: [
-    "живая поддержка", "живой чат", "оператор", "позвать оператора",
-    "служба поддержки", "помощь", "человек"
-  ],
-  en: [
-    "live support", "live chat", "operator", "call operator",
-    "human support", "talk to human", "customer service",
-    "help", "support", "agent"
-  ]
+// ════════════════════════════════════════════════════
+// MENYU MƏTNLƏRİ
+// ════════════════════════════════════════════════════
+const MENU = {
+  az: {
+    main: `Salam! 01 Code Studio-ya xoş gəlmisiniz 👋
+
+Sizə necə kömək edə bilərəm?
+
+1️⃣ Xidmətlərimiz
+2️⃣ Haqqımızda
+3️⃣ Əlaqə
+
+İstənilən sualınızı da birbaşa yaza bilərsiniz.
+Dil dəyişmək üçün: az / ru / en`,
+
+    services: `Hansı xidmətlə maraqlanırsınız? 😊
+
+1️⃣ Vebsayt hazırlanması
+2️⃣ Mobil tətbiq
+3️⃣ ERP / CRM / Avtomatlaşdırma
+4️⃣ SEO optimizasiyası
+5️⃣ Texniki dəstək
+
+0️⃣ Ana menyuya qayıt`,
+
+    about: `01 Code Studio haqqında 🏢
+
+Biz Azərbaycanda bizneslərin rəqəmsal dünyada güclü şəkildə təmsil olunması üçün çalışan peşəkar IT şirkətiyik.
+
+Vebsayt, mobil tətbiq, ERP sistemi, SEO və texniki dəstək xidmətləri göstəririk. Hər layihəyə fərdi yanaşır, müştərilərimizi layihə bitdikdən sonra da tək qoymuruq.
+
+🌐 www.01cs.site
+📸 @01cs.az
+📞 +994 10 717 20 34
+
+0️⃣ Ana menyuya qayıt`,
+
+    contact: `Bizimlə əlaqə 📞
+
+📞 Telefon / WhatsApp: +994 10 717 20 34
+💬 WhatsApp linki: wa.me/994107172034
+📧 Email: info@01cs.site
+
+🕐 İş saatları: 7/24
+
+0️⃣ Ana menyuya qayıt`,
+
+    website: `💻 Vebsayt Hazırlanması
+
+Xidmət növləri:
+• Vizit / Landing page — 520–1300 AZN (7–14 gün)
+• Korporativ sayt — 1300–4400 AZN (30–60 gün)
+• E-ticarət saytı — 2600–13000 AZN (60–120 gün)
+
+Hər layihəyə daxildir:
+• 100% mobil uyğun dizayn
+• SEO hazırlığı (Google-da görünmək üçün)
+• Admin panel — saytı özünüz idarə edin
+• Ödəniş sistemi inteqrasiyası
+• 1 ay pulsuz texniki dəstək
+
+Dəqiq qiymət layihənin tələbinə görə müəyyən edilir.
+👉 https://01cs.site/teklif-al.html
+
+Sual varsa yazın, cavablayacağam 😊
+0️⃣ Xidmətlərə qayıt`,
+
+    mobile: `📱 Mobil Tətbiq Hazırlanması
+
+Səviyyələr:
+• Sadə tətbiq — 2600–6000 AZN (30–45 gün)
+• Orta səviyyəli — 6000–15500 AZN (60–90 gün)
+• Mürəkkəb tətbiq — 13000–43000 AZN (90–180 gün)
+
+Hər layihəyə daxildir:
+• iOS və Android — eyni vaxtda
+• Push bildiriş sistemi
+• Ödəniş inteqrasiyası
+• GPS, chat funksiyaları
+• Admin panel
+
+👉 https://01cs.site/teklif-al.html
+
+Sual varsa yazın 😊
+0️⃣ Xidmətlərə qayıt`,
+
+    erp: `⚙️ ERP / CRM / Avtomatlaşdırma
+
+Qiymət: 7000–43000 AZN
+Müddət: 3–8 həftə
+
+Modullar:
+• Müştəri idarəsi (CRM)
+• Anbar və satış
+• İşçi və əmək haqqı
+• Maliyyə və mühasibat
+• Analitik hesabatlar
+
+Xüsusiyyətlər:
+• İstənilən API ilə inteqrasiya
+• Çoxistifadəçili sistem
+• Bulud və ya öz serverinizdə
+
+👉 https://01cs.site/teklif-al.html
+
+Sual varsa yazın 😊
+0️⃣ Xidmətlərə qayıt`,
+
+    seo: `🔍 SEO Optimizasiyası
+
+Qiymət: 450–1800 AZN/ay
+Nəticə: 1–3 ay ərzində
+
+Daxildir:
+• Açar söz araşdırması
+• Texniki SEO audit
+• Daxili optimizasiya
+• Keyfiyyətli link building
+• Aylıq hesabat
+
+👉 https://01cs.site/teklif-al.html
+
+Sual varsa yazın 😊
+0️⃣ Xidmətlərə qayıt`,
+
+    support: `🛠️ Texniki Dəstək
+
+Qiymət: 250–1500 AZN/saat (və ya aylıq abunə)
+Cavab müddəti: 1–2 saat (kritik)
+
+Daxildir:
+• Təhlükəsizlik yeniləmələri
+• Sürət optimizasiyası
+• Xəta düzəlişləri
+• Yeni funksiya əlavəsi
+• 7/24 dəstək
+
+👉 https://01cs.site/teklif-al.html
+
+Sual varsa yazın 😊
+0️⃣ Xidmətlərə qayıt`,
+
+    live: `Sizi dərhal canlı dəstəyə yönləndiririk 🙏
+
+Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq.
+
+📞 +994 10 717 20 34
+💬 wa.me/994107172034`,
+  },
+
+  ru: {
+    main: `Добро пожаловать в 01 Code Studio! 👋
+
+Чем могу помочь?
+
+1️⃣ Наши услуги
+2️⃣ О нас
+3️⃣ Контакты
+
+Вы также можете написать свой вопрос напрямую.
+Язык: az / ru / en`,
+
+    services: `Какая услуга вас интересует? 😊
+
+1️⃣ Разработка сайта
+2️⃣ Мобильное приложение
+3️⃣ ERP / CRM / Автоматизация
+4️⃣ SEO оптимизация
+5️⃣ Техническая поддержка
+
+0️⃣ Главное меню`,
+
+    about: `О компании 01 Code Studio 🏢
+
+Мы — профессиональная IT-компания в Азербайджане. Разрабатываем сайты, мобильные приложения, ERP системы и предоставляем полную цифровую поддержку бизнесу.
+
+🌐 www.01cs.site
+📞 +994 10 717 20 34
+
+0️⃣ Главное меню`,
+
+    contact: `Контакты 📞
+
+📞 Телефон / WhatsApp: +994 10 717 20 34
+💬 wa.me/994107172034
+📧 info@01cs.site
+🕐 Работаем 7/24
+
+0️⃣ Главное меню`,
+
+    website: `💻 Разработка веб-сайтов
+
+• Визитка / Landing: 520–1300 AZN (7–14 дней)
+• Корпоративный: 1300–4400 AZN (30–60 дней)
+• Интернет-магазин: 2600–13000 AZN (60–120 дней)
+
+Включено: адаптивный дизайн, SEO, админ-панель, оплата, 1 месяц поддержки.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Назад к услугам`,
+
+    mobile: `📱 Мобильные приложения
+
+• Простое: 2600–6000 AZN (30–45 дней)
+• Среднее: 6000–15500 AZN (60–90 дней)
+• Сложное: 13000–43000 AZN (90–180 дней)
+
+iOS и Android, push, оплата, GPS, чат, админка.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Назад к услугам`,
+
+    erp: `⚙️ ERP / CRM / Автоматизация
+
+Цена: 7000–43000 AZN (3–8 недель)
+Модули: клиенты, склад, продажи, финансы, отчёты.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Назад к услугам`,
+
+    seo: `🔍 SEO оптимизация
+
+450–1800 AZN/мес. Результат за 1–3 месяца.
+Аудит, оптимизация, ссылки, ежемесячный отчёт.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Назад к услугам`,
+
+    support: `🛠️ Техническая поддержка
+
+250–1500 AZN/час или абонемент. Ответ за 1–2 часа.
+Безопасность, скорость, исправление ошибок, 7/24.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Назад к услугам`,
+
+    live: `Соединяем с оператором... 🙏
+
+Наш специалист свяжется с вами в ближайшее время.
+📞 +994 10 717 20 34`,
+  },
+
+  en: {
+    main: `Welcome to 01 Code Studio! 👋
+
+How can I help you?
+
+1️⃣ Our Services
+2️⃣ About Us
+3️⃣ Contact
+
+You can also ask any question directly.
+Language: az / ru / en`,
+
+    services: `Which service interests you? 😊
+
+1️⃣ Website Development
+2️⃣ Mobile App
+3️⃣ ERP / CRM / Automation
+4️⃣ SEO Optimization
+5️⃣ Technical Support
+
+0️⃣ Main Menu`,
+
+    about: `About 01 Code Studio 🏢
+
+We are a professional IT company in Azerbaijan. We develop websites, mobile apps, ERP systems and provide full digital support.
+
+🌐 www.01cs.site
+📞 +994 10 717 20 34
+
+0️⃣ Main Menu`,
+
+    contact: `Contact Us 📞
+
+📞 Phone / WhatsApp: +994 10 717 20 34
+💬 wa.me/994107172034
+📧 info@01cs.site
+🕐 Available 7/24
+
+0️⃣ Main Menu`,
+
+    website: `💻 Website Development
+
+• Landing page: 520–1300 AZN (7–14 days)
+• Corporate: 1300–4400 AZN (30–60 days)
+• E-commerce: 2600–13000 AZN (60–120 days)
+
+Includes: responsive design, SEO, admin panel, payments, 1 month support.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Back to Services`,
+
+    mobile: `📱 Mobile App Development
+
+• Simple: 2600–6000 AZN (30–45 days)
+• Medium: 6000–15500 AZN (60–90 days)
+• Complex: 13000–43000 AZN (90–180 days)
+
+iOS & Android, push, payments, GPS, chat, admin.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Back to Services`,
+
+    erp: `⚙️ ERP / CRM / Automation
+
+Price: 7000–43000 AZN (3–8 weeks)
+Modules: customers, warehouse, sales, finance, reports.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Back to Services`,
+
+    seo: `🔍 SEO Optimization
+
+450–1800 AZN/month. Results in 1–3 months.
+Keyword research, audit, on-page, links, monthly reports.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Back to Services`,
+
+    support: `🛠️ Technical Support
+
+250–1500 AZN/hour or subscription. 1–2 hour response.
+Security, speed, bug fixes, new features, 24/7.
+
+👉 https://01cs.site/teklif-al.html
+0️⃣ Back to Services`,
+
+    live: `Connecting you to live support... 🙏
+
+Our specialist will contact you shortly.
+📞 +994 10 717 20 34`,
+  }
 };
 
-function isLiveRequest(text) {
-  const lower = text.toLowerCase();
-  for (const lang in LIVE_KEYWORDS) {
-    for (const kw of LIVE_KEYWORDS[lang]) {
-      if (lower.includes(kw.toLowerCase())) return true;
-    }
-  }
-  return false;
-}
-
-const DETAIL_KEYWORDS = [
-  "ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "əlavə məlumat", "more info", "подробнее",
-  "daha çox", "ətraflı məlumat", "etrafli melumat", "daha ətraflı məlumat verə bilərsiniz",
-  "etrafli melumat ver", "daha ətraflı məlumat verin", "ətraflı məlumat verin", "daha ətraflı cavab",
-  "daha ətraflı cavab verin"
+// ════════════════════════════════════════════════════
+// CANLI DƏSTƏK AÇAR SÖZLƏRİ
+// ════════════════════════════════════════════════════
+const LIVE_WORDS = [
+  "canlı dəstək", "canli destek", "canlı destek",
+  "operator", "operatör",
+  "insan dəstək", "insan destek",
+  "müştəri xidmətləri", "musteri xidmetleri",
+  "canlı yardım", "canli yardim",
+  "живая поддержка", "оператор", "живой чат",
+  "live support", "live chat", "human support", "talk to human"
 ];
 
-const MENUS = {
-  az: {
-    main: "Salam! 👋 01 Code Studio-ya xoş gəlmisiniz! 😊\n\nSizə necə kömək edə bilərəm?\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə\n\nDil: az, ru, en",
-    services: "1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP/CRM\n4️⃣ SEO\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyu",
-    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0️⃣ Ana menyu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0️⃣ Ana menyu",
-    liveSupport: "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊"
-  },
-  ru: {
-    main: "Добро пожаловать! 👋\n\n1️⃣ Услуги\n2️⃣ О нас\n3️⃣ Контакты\n\nЯзык: az, ru, en",
-    services: "1️⃣ Сайт\n2️⃣ Приложение\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Поддержка\n0️⃣ Главное меню",
-    about: "01 Code Studio — IT-решения. 🌐 www.01cs.site\n0️⃣ Главное меню",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Главное меню",
-    liveSupport: "Перенаправляем вас в службу поддержки. 😊"
-  },
-  en: {
-    main: "Welcome! 👋\n\n1️⃣ Services\n2️⃣ About\n3️⃣ Contact\n\nLanguage: az, ru, en",
-    services: "1️⃣ Website\n2️⃣ Mobile App\n3️⃣ ERP\n4️⃣ SEO\n5️⃣ Support\n0️⃣ Main menu",
-    about: "01 Code Studio — professional software solutions. 🌐 www.01cs.site\n0️⃣ Main menu",
-    contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n0️⃣ Main menu",
-    liveSupport: "Redirecting you to live support. 😊"
-  }
-};
+function isLiveRequest(text) {
+  const t = text.toLowerCase();
+  return LIVE_WORDS.some(w => t.includes(w));
+}
 
-async function getResponse(userId, text, username = "user") {
-  const raw = text.trim();
-  const lower = raw.toLowerCase();
-  let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
-  if (blocked) return null;
+// ════════════════════════════════════════════════════
+// ƏSAS CAVAB MƏNTİQİ
+// ════════════════════════════════════════════════════
+async function getReply(userId, text, username = "") {
+  const t = text.trim();
+  const lower = t.toLowerCase();
+  const u = getUser(userId);
 
-  if (!language || !["az", "ru", "en"].includes(language)) {
-    language = "az";
-    setUserState(userId, { language });
-  }
+  if (u.blocked) return null;
 
   // Dil dəyişmə
-  if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
-  if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
-  if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
+  if (lower === "az") { setState(userId, { language: "az", state: "main", history: [] }); return MENU.az.main; }
+  if (lower === "ru") { setState(userId, { language: "ru", state: "main", history: [] }); return MENU.ru.main; }
+  if (lower === "en") { setState(userId, { language: "en", state: "main", history: [] }); return MENU.en.main; }
 
-  // Canlı dəstək - birinci prioritet
-  if (isLiveRequest(raw)) {
-    await sendTelegramNotification(userId, raw, username);
-    setUserState(userId, { blocked: true });
-    return MENUS[language].liveSupport;
+  const lang = u.language || "az";
+  const m = MENU[lang];
+
+  // Canlı dəstək
+  if (isLiveRequest(t)) {
+    await notifyTelegram(userId, t, username);
+    setState(userId, { blocked: true });
+    logEvent(userId, "live_support", t);
+    return m.live;
   }
 
-  // Əsas əmrlər
-  if (["0", "menu", "salam", "start", "main", "0."].includes(lower)) {
-    setUserState(userId, { state: "main", detailLevel: 1 });
-    return MENUS[language].main;
+  // Ana menyuya qayıt
+  const backWords = ["0", "menu", "salam", "start", "hi", "hello", "back", "назад", "geri"];
+  if (backWords.includes(lower)) {
+    setState(userId, { state: "main" });
+    return m.main;
   }
 
-  // Cavab funksiyası - AI ilə
-  async function getAIResponse(text, context, lang) {
-    const ai = await askGroq(text, context, lang);
-    if (ai) return ai;
-    return "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
+  // ── ANA MENYU ──────────────────────────────────────
+  if (u.state === "main") {
+    if (lower === "1") { setState(userId, { state: "services" }); return m.services; }
+    if (lower === "2") { setState(userId, { state: "about" }); return m.about; }
+    if (lower === "3") { setState(userId, { state: "contact" }); return m.contact; }
+
+    // Sərbəst sual — AI
+    const ai = await askAI(userId, t, null);
+    return ai || m.main;
   }
 
-  if (state === "main") {
-    if (lower === "1" || lower === "1." || lower === "1️⃣") {
-      setUserState(userId, { state: "services" });
-      return MENUS[language].services;
-    }
-    if (lower === "2" || lower === "2." || lower === "2️⃣") {
-      setUserState(userId, { state: "about" });
-      return MENUS[language].about;
-    }
-    if (lower === "3" || lower === "3." || lower === "3️⃣") {
-      setUserState(userId, { state: "contact" });
-      return MENUS[language].contact;
-    }
-    return await getAIResponse(raw, null, language);
+  // ── XİDMƏTLƏR MENYUSU ─────────────────────────────
+  if (u.state === "services") {
+    if (lower === "1") { setState(userId, { state: "service_detail", lastService: "website" }); return m.website; }
+    if (lower === "2") { setState(userId, { state: "service_detail", lastService: "mobile" }); return m.mobile; }
+    if (lower === "3") { setState(userId, { state: "service_detail", lastService: "erp" }); return m.erp; }
+    if (lower === "4") { setState(userId, { state: "service_detail", lastService: "seo" }); return m.seo; }
+    if (lower === "5") { setState(userId, { state: "service_detail", lastService: "support" }); return m.support; }
+
+    const ai = await askAI(userId, t, null);
+    return ai || m.services;
   }
 
-  if (state === "services") {
-    if (lower === "1" || lower === "1." || lower === "1️⃣") {
-      setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 });
-      return SERVICE_DETAILS.website[language] || SERVICE_DETAILS.website.az;
-    }
-    if (lower === "2" || lower === "2." || lower === "2️⃣") {
-      setUserState(userId, { state: "sub", lastService: "mobile", detailLevel: 1 });
-      return SERVICE_DETAILS.mobile[language] || SERVICE_DETAILS.mobile.az;
-    }
-    if (lower === "3" || lower === "3." || lower === "3️⃣") {
-      setUserState(userId, { state: "sub", lastService: "erp", detailLevel: 1 });
-      return SERVICE_DETAILS.erp[language] || SERVICE_DETAILS.erp.az;
-    }
-    if (lower === "4" || lower === "4." || lower === "4️⃣") {
-      setUserState(userId, { state: "sub", lastService: "seo", detailLevel: 1 });
-      return SERVICE_DETAILS.seo[language] || SERVICE_DETAILS.seo.az;
-    }
-    if (lower === "5" || lower === "5." || lower === "5️⃣") {
-      setUserState(userId, { state: "sub", lastService: "support", detailLevel: 1 });
-      return SERVICE_DETAILS.support[language] || SERVICE_DETAILS.support.az;
-    }
-    if (lower === "0" || lower === "0." || lower === "0️⃣") {
-      setUserState(userId, { state: "main" });
-      return MENUS[language].main;
-    }
-    return await getAIResponse(raw, null, language);
+  // ── XİDMƏT DETALİ — AI ilə söhbət ────────────────
+  if (u.state === "service_detail") {
+    const ai = await askAI(userId, t, u.lastService);
+    return ai || m.services;
   }
 
-  if (state === "sub") {
-    if (lower === "0" || lower === "0." || lower === "0️⃣") {
-      setUserState(userId, { state: "services", detailLevel: 1 });
-      return MENUS[language].services;
-    }
-    if (DETAIL_KEYWORDS.some(kw => lower.includes(kw)) && lastService) {
-      let newLevel = detailLevel + 1;
-      if (newLevel > 3) newLevel = 3;
-      setUserState(userId, { detailLevel: newLevel });
-      const extra = getAdditionalDetail(lastService, language, newLevel);
-      if (extra) {
-        return `📌 Əlavə məlumat (${newLevel}/3):\n${extra}\n\n0️⃣ Xidmətlərə qayıt`;
-      } else {
-        return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰\n\n0️⃣ Xidmətlərə qayıt";
-      }
-    }
-    return await getAIResponse(raw, lastService, language);
+  // ── HAQQIMIZDA / ƏLAQƏ — AI ilə söhbət ───────────
+  if (u.state === "about" || u.state === "contact") {
+    const ai = await askAI(userId, t, null);
+    return ai || m.main;
   }
 
-  setUserState(userId, { state: "main" });
-  return MENUS[language].main;
+  // Default
+  setState(userId, { state: "main" });
+  return m.main;
 }
 
-async function replyToDM(recipientId, message) {
-  if (!message) return;
+// ════════════════════════════════════════════════════
+// INSTAGRAM API
+// ════════════════════════════════════════════════════
+async function igRequest(url, data) {
+  return axios.post(url, data, {
+    params: { access_token: CONFIG.IG_ACCESS_TOKEN }
+  });
+}
+
+async function commentReply(commentId, message) {
   try {
-    await axios.post("https://graph.instagram.com/v21.0/me/messages", {
-      recipient: { id: recipientId }, message: { text: message }
-    }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
+    await igRequest(`https://graph.instagram.com/v21.0/${commentId}/replies`, { message });
   } catch (e) {
-    console.error("replyToDM xətası:", e.response?.data?.error?.message || e.message);
+    console.log("Şərh cavabı xətası:", e.response?.data?.error?.message || e.message);
   }
 }
-async function replyToComment(commentId, message) {
-  try {
-    await axios.post(`https://graph.instagram.com/v21.0/${commentId}/replies`, { message }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
-  } catch (e) {
-    console.error("replyToComment xətası:", e.response?.data?.error?.message || e.message);
-  }
-}
+
 async function sendDM(commentId, message) {
   try {
-    await axios.post("https://graph.instagram.com/v21.0/me/messages", {
-      recipient: { comment_id: commentId }, message: { text: message }
-    }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
+    await igRequest("https://graph.instagram.com/v21.0/me/messages", {
+      recipient: { comment_id: commentId },
+      message: { text: message }
+    });
   } catch (e) {
-    console.error("sendDM xətası:", e.response?.data?.error?.message || e.message);
-  }
-}
-async function sendMediaDM(recipientId, imageUrl, caption = "") {
-  try {
-    await axios.post("https://graph.instagram.com/v21.0/me/messages", {
-      recipient: { id: recipientId },
-      message: {
-        attachment: { type: "image", payload: { url: imageUrl } },
-        ...(caption && { text: caption })
-      }
-    }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
-  } catch (e) {
-    console.error("sendMediaDM xətası:", e.response?.data?.error?.message || e.message);
+    console.log("DM xətası:", e.response?.data?.error?.message || e.message);
+    // DM göndərilmədi — şərhdə xəbər ver
+    try {
+      await igRequest(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
+        message: "Sizə DM göndərmək mümkün olmadı. Bizimlə əlaqə saxlayın: +994 10 717 20 34"
+      });
+    } catch {}
   }
 }
 
+async function replyDM(recipientId, message) {
+  try {
+    await igRequest("https://graph.instagram.com/v21.0/me/messages", {
+      recipient: { id: recipientId },
+      message: { text: message }
+    });
+  } catch (e) {
+    console.log("DM cavabı xətası:", e.response?.data?.error?.message || e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════
+// WEBHOOK
+// ════════════════════════════════════════════════════
 app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
+  const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
   if (mode === "subscribe" && token === CONFIG.VERIFY_TOKEN) {
+    console.log("✅ Webhook verified");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -454,107 +736,214 @@ app.post("/webhook", async (req, res) => {
   try {
     const body = req.body;
     if (body.object !== "instagram") return;
+
     for (const entry of body.entry || []) {
       const myId = entry.id;
+
+      // ── Şərhlər ───────────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
-        const comment = change.value;
-        const commentId = comment.id;
-        const commentText = comment.text || "";
-        const fromUser = comment.from?.username || "istifadəçi";
-        
-        if (isProcessing(commentId)) {
-          console.log(`⏭️ Şərh artıq emal olunur: ${commentId}`);
-          continue;
-        }
-        if (isProcessed(commentId)) {
-          console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
-          continue;
-        }
-        
-        lockProcessing(commentId);
-        
-        try {
-          logAnalytics(fromUser, "comment", commentText);
-          console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
+        const c = change.value;
+        if (!c?.id) continue;
 
-          await replyToComment(commentId, "Şərhiniz DM-də cavablandırıldı ✔️");
-          console.log(`💬 Şərhə standart cavab yazıldı`);
-          
-          await sendDM(commentId, MENUS.az.main);
+        if (isLocked(c.id) || isProcessed(c.id)) {
+          console.log(`⏭️ Şərh keçildi: ${c.id}`);
+          continue;
+        }
+
+        lock(c.id);
+        try {
+          const fromUser = c.from?.username || "";
+          console.log(`📩 Şərh: @${fromUser}`);
+          logEvent(c.from?.id || c.id, "comment", c.text || "");
+
+          await commentReply(c.id, "Şərhiniz DM-də cavablandırıldı ✔️");
+          await sendDM(c.id, MENU.az.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
-          
-          markProcessed(commentId);
-        } catch (e) {
-          console.log("⚠️ Şərh emal xətası:", e.message);
         } finally {
-          unlockProcessing(commentId);
+          unlock(c.id);
         }
       }
 
+      // ── DM mesajları ───────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
         const msgId = msg.message?.mid;
+
         if (!text || !senderId || !msgId) continue;
         if (senderId === myId) continue;
-        if (isProcessed(msgId)) continue;
-        logAnalytics(senderId, "dm", text);
-        const username = msg.sender?.username || "user";
-        const response = await getResponse(senderId, text, username);
-        if (response) await replyToDM(senderId, response);
-        markProcessed(msgId);
+        if (isLocked(msgId) || isProcessed(msgId)) {
+          console.log(`⏭️ DM keçildi: ${msgId}`);
+          continue;
+        }
+
+        lock(msgId);
+        try {
+          const username = msg.sender?.username || "";
+          console.log(`💬 DM @${username}: "${text.slice(0, 60)}"`);
+          logEvent(senderId, "dm", text);
+
+          const reply = await getReply(senderId, text, username);
+          if (reply) {
+            await replyDM(senderId, reply);
+            console.log("✅ Cavablandı");
+          }
+        } finally {
+          unlock(msgId);
+        }
       }
     }
-  } catch (err) { console.error("❌ Webhook xətası:", err.message); }
+  } catch (e) {
+    console.error("❌ Webhook xətası:", e.message);
+  }
 });
 
-function isAdmin(req, res, next) {
-  if (req.session.admin) return next();
+// ════════════════════════════════════════════════════
+// ADMİN PANELİ
+// ════════════════════════════════════════════════════
+function adminAuth(req, res, next) {
+  if (req.session?.admin) return next();
   res.redirect("/admin/login");
 }
+
 app.get("/admin/login", (req, res) => {
-  res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="İstənilən şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin — 01CS Bot</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:#0a0a1a;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .box{background:#1a1a2e;padding:40px;border-radius:16px;width:320px;text-align:center}
+  h2{color:#4f8ef7;margin-bottom:24px;font-size:20px}
+  input{width:100%;padding:12px;border-radius:8px;border:1px solid #333;background:#0a0a1a;color:#fff;margin-bottom:16px;font-size:15px}
+  button{width:100%;padding:12px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600}
+  button:hover{background:#3a7de0}
+  .logo{font-size:28px;margin-bottom:8px}
+</style></head>
+<body><div class="box">
+  <div class="logo">🤖</div>
+  <h2>01CS Bot Admin</h2>
+  <form method="post" action="/admin/login">
+    <input type="password" name="pwd" placeholder="Şifrə" required autofocus>
+    <button type="submit">Daxil ol</button>
+  </form>
+</div></body></html>`);
 });
-app.post("/admin/login", (req, res) => {
-  req.session.admin = true;
-  res.redirect("/admin/dashboard");
+
+app.post("/admin/login", express.urlencoded({ extended: false }), (req, res) => {
+  if (req.body.pwd === CONFIG.ADMIN_PASSWORD) {
+    req.session.admin = true;
+    res.redirect("/admin");
+  } else {
+    res.send(`<script>alert("Yanlış şifrə!");history.back();</script>`);
+  }
 });
-app.get("/admin/dashboard", isAdmin, (req, res) => {
+
+app.get("/admin/logout", (req, res) => {
+  req.session.destroy();
+  res.redirect("/admin/login");
+});
+
+app.get("/admin", adminAuth, (req, res) => {
   let analytics = [];
-  if (fs.existsSync(ANALYTICS_FILE)) analytics = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
+  try {
+    if (fs.existsSync(ANALYTICS_FILE)) {
+      analytics = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
+    }
+  } catch {}
+
   const total = analytics.length;
   const unique = new Set(analytics.map(a => a.userId)).size;
-  const blocked = [...userStates.values()].filter(s => s.blocked).length;
-  const users = Array.from(userStates.entries()).map(([id, s]) => ({ id, ...s }));
-  res.send(`
-    <!DOCTYPE html>
-    <html><head><meta charset="UTF-8"><title>Admin Panel</title><style>
-      body{font-family:sans-serif;background:#e9ecef;padding:20px}
-      .stats{display:flex;gap:20px;flex-wrap:wrap}
-      .stat{background:white;padding:15px;border-radius:8px;flex:1;text-align:center}
-      .stat .num{font-size:28px;font-weight:bold}
-      table{width:100%;border-collapse:collapse;background:white;margin-top:20px}
-      th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd}
-    </style></head>
-    <body>
-      <h1>Admin Panel</h1>
-      <div class="stats">
-        <div class="stat"><div class="num">${total}</div><div>Ümumi mesajlar</div></div>
-        <div class="stat"><div class="num">${unique}</div><div>Unikal istifadəçi</div></div>
-        <div class="stat"><div class="num">${blocked}</div><div>Bloklanmış</div></div>
-      </div>
-      <h2>İstifadəçi sessiyaları</h2>
-      <table><thead><tr><th>ID</th><th>State</th><th>Son xidmət</th><th>Dil</th><th>Blok</th><th>Son aktivlik</th><th></th></tr></thead>
-      <tbody>${users.map(u => `<tr><td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language}</td><td>${u.blocked ? 'Bloklu' : 'Açıq'}</td><td>${new Date(u.lastActive).toLocaleString()}</td><td>${u.blocked ? `<a href="/admin/unblock/${u.id}">Bloku aç</a>` : ''}</td></tr>`).join('')}</tbody>
-      </table>
-    </body></html>
-  `);
+  const comments = analytics.filter(a => a.action === "comment").length;
+  const dms = analytics.filter(a => a.action === "dm").length;
+  const liveReqs = analytics.filter(a => a.action === "live_support").length;
+  const activeUsers = [...users.values()].filter(u => !u.blocked).length;
+  const blockedUsers = [...users.values()].filter(u => u.blocked).length;
+  const last30 = analytics.slice(-30).reverse();
+
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Panel — 01CS Bot</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#0d0d1a;color:#e0e0e0;padding:16px}
+  h1{color:#4f8ef7;font-size:20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:20px}
+  .card{background:#1a1a2e;border-radius:10px;padding:14px;text-align:center}
+  .card .n{font-size:28px;font-weight:700;color:#4f8ef7}
+  .card .l{font-size:11px;color:#888;margin-top:4px}
+  .section{background:#1a1a2e;border-radius:10px;padding:16px;margin-bottom:16px;overflow-x:auto}
+  .section h2{font-size:14px;color:#aaa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #2a2a3e}
+  table{width:100%;border-collapse:collapse;font-size:12px;min-width:500px}
+  th{color:#4f8ef7;padding:8px 6px;text-align:left;font-weight:600;white-space:nowrap}
+  td{padding:8px 6px;border-bottom:1px solid #1e1e2e;color:#ccc}
+  .badge{padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600}
+  .badge.comment{background:#1e3a5f;color:#4f8ef7}
+  .badge.dm{background:#1e4a2e;color:#4fc87f}
+  .badge.live_support{background:#4a1e1e;color:#f74f4f}
+  .btn{background:#4f8ef7;color:#fff;padding:5px 10px;border-radius:6px;text-decoration:none;font-size:11px;white-space:nowrap}
+  .logout{background:#2a2a3e;color:#aaa;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px}
+</style></head>
+<body>
+<h1>🤖 01CS Bot Admin <a href="/admin/logout" class="logout">Çıxış</a></h1>
+
+<div class="cards">
+  <div class="card"><div class="n">${total}</div><div class="l">Ümumi hadisə</div></div>
+  <div class="card"><div class="n">${unique}</div><div class="l">Unikal istifadəçi</div></div>
+  <div class="card"><div class="n">${comments}</div><div class="l">Şərh</div></div>
+  <div class="card"><div class="n">${dms}</div><div class="l">DM mesaj</div></div>
+  <div class="card"><div class="n">${liveReqs}</div><div class="l">Canlı dəstək</div></div>
+  <div class="card"><div class="n">${activeUsers}</div><div class="l">Aktiv sessiya</div></div>
+  <div class="card"><div class="n">${blockedUsers}</div><div class="l">Canlı dəstəkdə</div></div>
+</div>
+
+<div class="section">
+  <h2>Son 30 hadisə</h2>
+  <table>
+    <tr><th>Vaxt</th><th>İstifadəçi</th><th>Tip</th><th>Məzmun</th></tr>
+    ${last30.map(e => `
+    <tr>
+      <td style="white-space:nowrap">${new Date(e.time).toLocaleString("az")}</td>
+      <td>${e.userId}</td>
+      <td><span class="badge ${e.action}">${e.action}</span></td>
+      <td>${String(e.details || "").slice(0, 80)}</td>
+    </tr>`).join("")}
+  </table>
+</div>
+
+<div class="section">
+  <h2>Aktiv sessiyalar</h2>
+  <table>
+    <tr><th>ID</th><th>Vəziyyət</th><th>Son xidmət</th><th>Dil</th><th>Mesaj</th><th>Status</th><th></th></tr>
+    ${[...users.entries()].map(([id, u]) => `
+    <tr>
+      <td>${String(id).slice(-8)}</td>
+      <td>${u.state}</td>
+      <td>${u.lastService || "—"}</td>
+      <td>${u.language}</td>
+      <td>${u.messageCount}</td>
+      <td>${u.blocked ? "🔴 Canlı dəstəkdə" : "🟢 Aktiv"}</td>
+      <td>${u.blocked ? `<a href="/admin/unblock/${id}" class="btn">Bitir</a>` : ""}</td>
+    </tr>`).join("")}
+  </table>
+</div>
+</body></html>`);
 });
-app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
-  const userId = req.params.userId;
-  if (userStates.has(userId)) setUserState(userId, { blocked: false });
-  res.redirect("/admin/dashboard");
+
+app.get("/admin/unblock/:id", adminAuth, (req, res) => {
+  const u = users.get(req.params.id);
+  if (u) { u.blocked = false; u.state = "main"; }
+  res.redirect("/admin");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq ilə isləyir (insan kimi) ✅"));
-app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
+
+// ════════════════════════════════════════════════════
+// SERVER
+// ════════════════════════════════════════════════════
+app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
+
+app.listen(CONFIG.PORT, () => {
+  console.log(`🚀 01CS Bot port ${CONFIG.PORT}-də başladı`);
+  console.log(`📊 Admin: /admin (şifrə: ADMIN_PASSWORD env dəyişəni)`);
+  console.log(`🤖 Groq AI: ${groq ? "aktiv" : "deaktiv"}`);
+});
