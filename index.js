@@ -18,6 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-pro",
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -29,7 +30,6 @@ if (CONFIG.GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
 }
 
-// ======================== ANALİTİKA ============================
 const ANALYTICS_FILE = "/tmp/analytics.json";
 function logAnalytics(userId, action, details = "") {
   try {
@@ -81,7 +81,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// ======================== XİDMƏT TƏSVİRLƏRİ (emojili) ====================
+// Xidmət təsvirləri (qısaldılmış, emojili)
 const SERVICE_DETAILS = {
   website: {
     az: `💻 **Vebsayt Hazırlanması**
@@ -101,210 +101,28 @@ const SERVICE_DETAILS = {
 🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
 
 0️⃣ Xidmətlərə qayıt`,
-    ru: `💻 **Разработка веб-сайтов**
-
-📌 Типы услуг:
-• Визитка / Landing page – 520-1300 AZN (7-14 дней)
-• Корпоративный сайт – 1300-4400 AZN (30-60 дней)
-• Интернет-магазин – 2600-13000 AZN (60-120 дней)
-
-✨ Особенности:
-• Адаптивный дизайн
-• SEO-подготовка
-• Интеграция платёжных систем
-• Админ-панель
-• 1 месяц бесплатной техподдержки
-
-🔗 Точная цена: https://01cs.site/teklif-al.html
-
-0️⃣ Назад к услугам`,
-    en: `💻 **Website Development**
-
-📌 Service types:
-• Business card / Landing page – 520-1300 AZN (7-14 days)
-• Corporate website – 1300-4400 AZN (30-60 days)
-• E-commerce website – 2600-13000 AZN (60-120 days)
-
-✨ Features:
-• Responsive design
-• SEO ready
-• Payment system integration
-• Admin panel
-• 1 month free technical support
-
-🔗 Detailed offer: https://01cs.site/teklif-al.html
-
-0️⃣ Back to Services`
+    ru: `💻 **Разработка веб-сайтов**\n\n📌 Типы услуг:\n• Визитка / Landing page – 520-1300 AZN (7-14 дней)\n• Корпоративный сайт – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптивный дизайн, SEO, платёжные системы, админ-панель, 1 месяц бесплатной техподдержки.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `💻 **Website Development**\n\n📌 Service types:\n• Business card / Landing page – 520-1300 AZN (7-14 days)\n• Corporate website – 1300-4400 AZN (30-60 days)\n• E-commerce website – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive design, SEO, payment systems, admin panel, 1 month free support.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   mobile: {
-    az: `📱 **Mobil Tətbiq Hazırlanması**
-
-📌 Səviyyələr:
-• Sadə tətbiq – 2600-6000 AZN (30-45 gün)
-• Orta səviyyəli – 6000-15500 AZN (60-90 gün)
-• Mürəkkəb tətbiq – 13000-43000 AZN (90-180 gün)
-
-✨ Xüsusiyyətlər:
-• Native iOS & Android
-• Push bildirişlər
-• Ödəniş sistemləri
-• Chat, xəritə, GPS
-• Admin panel
-
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlərə qayıt`,
-    ru: `📱 **Разработка мобильных приложений**
-
-📌 Уровни:
-• Простое приложение – 2600-6000 AZN (30-45 дней)
-• Среднее – 6000-15500 AZN (60-90 дней)
-• Сложное – 13000-43000 AZN (90-180 дней)
-
-✨ Особенности:
-• Нативные iOS и Android
-• Push-уведомления
-• Платёжные системы
-• Чат, карты, GPS
-• Админ-панель
-
-🔗 Точная цена: https://01cs.site/teklif-al.html
-
-0️⃣ Назад к услугам`,
-    en: `📱 **Mobile App Development**
-
-📌 Levels:
-• Simple app – 2600-6000 AZN (30-45 days)
-• Medium – 6000-15500 AZN (60-90 days)
-• Complex – 13000-43000 AZN (90-180 days)
-
-✨ Features:
-• Native iOS & Android
-• Push notifications
-• Payment systems
-• Chat, maps, GPS
-• Admin panel
-
-🔗 Detailed offer: https://01cs.site/teklif-al.html
-
-0️⃣ Back to Services`
+    az: `📱 **Mobil Tətbiq Hazırlanması**\n\n📌 Səviyyələr:\n• Sadə – 2600-6000 AZN (30-45 gün)\n• Orta – 6000-15500 AZN (60-90 gün)\n• Mürəkkəb – 13000-43000 AZN (90-180 gün)\n\n✨ Xüsusiyyətlər: Native iOS/Android, push, ödəniş, chat, GPS, admin panel.\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+    ru: `📱 **Разработка мобильных приложений**\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные iOS/Android, push, оплата, чат, GPS, админ-панель.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `📱 **Mobile App Development**\n\n📌 Levels:\n• Simple – 2600-6000 AZN (30-45 days)\n• Medium – 6000-15500 AZN (60-90 days)\n• Complex – 13000-43000 AZN (90-180 days)\n\n✨ Features: Native iOS/Android, push, payments, chat, GPS, admin panel.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   erp: {
-    az: `⚙️ **ERP / CRM / Avtomatlaşdırma**
-
-📌 Modullar:
-• Müştəri idarəsi (CRM)
-• Anbar və satış
-• İşçi və əmək haqqı
-• Maliyyə və mühasibat
-• Hesabat analitikası
-
-💰 Qiymət: 7000-43000 AZN (layihəyə görə)
-⏱ Müddət: 3-8 həftə
-
-✨ Xüsusiyyətlər:
-• API inteqrasiyası
-• Real-time sinxronizasiya
-• Çoxistifadəçili sistem
-• 1 ay pulsuz test dəstəyi
-
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlərə qayıt`,
-    ru: `⚙️ **ERP / CRM / Автоматизация**
-
-📌 Модули:
-• Управление клиентами
-• Склад и продажи
-• Сотрудники и зарплата
-• Финансы и отчёты
-
-💰 Цена: 7000-43000 AZN
-⏱ Срок: 3-8 недель
-
-🔗 Точная цена: https://01cs.site/teklif-al.html
-
-0️⃣ Назад к услугам`,
-    en: `⚙️ **ERP / CRM / Automation**
-
-📌 Modules:
-• Customer management
-• Warehouse & sales
-• Employees & payroll
-• Finance & reports
-
-💰 Price: 7000-43000 AZN
-⏱ Timeline: 3-8 weeks
-
-🔗 Detailed offer: https://01cs.site/teklif-al.html
-
-0️⃣ Back to Services`
+    az: `⚙️ **ERP / CRM / Avtomatlaşdırma**\n\n📌 Modullar: Müştəri, anbar, satış, işçi, maliyyə, hesabat.\n💰 Qiymət: 7000-43000 AZN (layihəyə görə)\n⏱ Müddət: 3-8 həftə\n✨ Xüsusiyyətlər: API inteqrasiyası, real-time, çoxistifadəçili, 1 ay pulsuz test.\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+    ru: `⚙️ **ERP / CRM / Автоматизация**\n\n📌 Модули: клиенты, склад, продажи, сотрудники, финансы, отчёты.\n💰 Цена: 7000-43000 AZN\n⏱ Срок: 3-8 недель\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `⚙️ **ERP / CRM / Automation**\n\n📌 Modules: customers, warehouse, sales, employees, finance, reports.\n💰 Price: 7000-43000 AZN\n⏱ Timeline: 3-8 weeks\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   seo: {
-    az: `🔍 **SEO Optimizasiyası**
-
-📌 Xidmət daxildir:
-• Açar söz araşdırması
-• Texniki SEO audit
-• Daxili optimizasiya
-• Backlink qurulması
-• Aylıq hesabat
-
-💰 Qiymət: 450-1800 AZN/ay
-⏱ Nəticə: 1-3 ay
-
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlərə qayıt`,
-    ru: `🔍 **SEO оптимизация**
-
-💰 Цена: 450-1800 AZN/мес
-⏱ Результат: 1-3 месяца
-
-📌 Включено: анализ ключевых слов, тех. аудит, внутренняя оптимизация, ссылки, отчёты.
-🔗 https://01cs.site/teklif-al.html
-
-0️⃣ Назад к услугам`,
-    en: `🔍 **SEO Optimization**
-
-💰 Price: 450-1800 AZN/month
-⏱ Results: 1-3 months
-
-📌 Includes: keyword research, technical audit, on-page optimization, link building, reports.
-🔗 https://01cs.site/teklif-al.html
-
-0️⃣ Back to Services`
+    az: `🔍 **SEO Optimizasiyası**\n\n📌 Xidmət daxildir: açar söz araşdırması, texniki audit, optimizasiya, backlinklər, aylıq hesabat.\n💰 Qiymət: 450-1800 AZN/ay\n⏱ Nəticə: 1-3 ay\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+    ru: `🔍 **SEO оптимизация**\n\n💰 Цена: 450-1800 AZN/мес\n⏱ Результат: 1-3 месяца\n📌 Включено: анализ, аудит, оптимизация, ссылки, отчёты.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `🔍 **SEO Optimization**\n\n💰 Price: 450-1800 AZN/month\n⏱ Results: 1-3 months\n📌 Includes: keyword research, audit, on-page, link building, reports.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   support: {
-    az: `🛠️ **Texniki Dəstək**
-
-📌 Xidmət daxildir:
-• Təhlükəsizlik yeniləmələri
-• Sürət optimizasiyası
-• Xəta düzəlişləri
-• Yeni funksiyalar (saatlıq)
-• 24/7 onlayn dəstək
-
-💰 Qiymət: 250-1500 AZN/saat (və ya abunə)
-⏱ Cavab müddəti: 1-2 saat
-
-🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
-
-0️⃣ Xidmətlərə qayıt`,
-    ru: `🛠️ **Техническая поддержка**
-
-💰 Цена: 250-1500 AZN/час (или абонемент)
-📌 Обновления безопасности, оптимизация скорости, исправление ошибок, новые функции. 24/7.
-🔗 https://01cs.site/teklif-al.html
-
-0️⃣ Назад к услугам`,
-    en: `🛠️ **Technical Support**
-
-💰 Price: 250-1500 AZN/hour (or monthly subscription)
-📌 Security updates, speed optimization, bug fixes, new features. 24/7 support.
-🔗 https://01cs.site/teklif-al.html
-
-0️⃣ Back to Services`
+    az: `🛠️ **Texniki Dəstək**\n\n📌 Xidmət daxildir: təhlükəsizlik yeniləmələri, sürət optimizasiyası, xəta düzəlişləri, yeni funksiyalar, 24/7 dəstək.\n💰 Qiymət: 250-1500 AZN/saat (və ya abunə)\n⏱ Cavab müddəti: 1-2 saat\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
+    ru: `🛠️ **Техническая поддержка**\n\n💰 Цена: 250-1500 AZN/час (или абонемент)\n📌 Обновления, оптимизация, исправление ошибок, новые функции. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `🛠️ **Technical Support**\n\n💰 Price: 250-1500 AZN/hour (or monthly subscription)\n📌 Security updates, speed optimization, bug fixes, new features. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   }
 };
 
@@ -369,7 +187,10 @@ Cavab dili: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" 
 ${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Model adı environment-dən götürülür (default: gemini-pro)
+    const modelName = CONFIG.GEMINI_MODEL;
+    console.log(`🤖 İstifadə olunan model: ${modelName}`);
+    const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent(systemPrompt);
     let reply = result.response.text().trim();
     if (reply.length > 800) reply = reply.substring(0, 800) + "...";
@@ -430,6 +251,12 @@ async function getResponse(userId, text, username = "user") {
   const lower = raw.toLowerCase();
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
+
+  // Dil dəyərinin etibarlılığını yoxla
+  if (!language || !["az", "ru", "en"].includes(language)) {
+    language = "az";
+    setUserState(userId, { language });
+  }
 
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
