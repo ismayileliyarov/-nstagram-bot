@@ -103,6 +103,82 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
+// ==================== YENİ SYSTEM PROMPT ====================
+function getSystemPrompt(language) {
+  const lang = language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis";
+  
+  return `Sən 01 Code Studio-nun rəsmi köməkçisisən. Adın "Aysel"dir. Çox isti, nəzakətli və peşəkar davran.
+
+⚠️ ÇOX VACİB QAYDALAR:
+1. Hər zaman tam səhvsiz və qrammatik cəhətdən doğru ${lang} dili işlət. Heç bir hərf səhvi olmasın.
+2. Hər gələn mesaj a mütləq cavab ver. Heç vaxt boş cavab vermə və ya susma.
+3. Cavablar sadə, təbii və insan kimi olsun. Robot kimi danışma.
+4. Hər cavabda 1-2 emoji istifadə et, amma çox şişirtmə.
+5. Eyni söz və ya cümləni təkrar etmə.
+6. Heç vaxt uydurma məlumat vermə.
+
+📌 Şirkət məlumatları:
+- Adı: 01 Code Studio
+- Sayt: https://01cs.site
+- Təklif alma: https://01cs.site/teklif-al.html
+- Portfolio: https://01cs.site/portfolio
+- Telefon: +994 10 717 20 34
+- WhatsApp: wa.me/994107172034
+- Email: info@01cs.site
+
+Xidmətlər:
+• Vebsayt hazırlama (520-13000 AZN)
+• Mobil tətbiq (2600-43000 AZN)
+• ERP/CRM sistemləri (7000-43000 AZN)
+• SEO (450-1800 AZN/ay)
+• Texniki dəstək (250-1500 AZN/saat)
+
+🚫 Əlaqəsiz və ya mənasız mesajlara:
+Mümkün qədər nəzakətlə şirkət xidmətlərinə yönəlt. Əgər heç bir əlaqə yoxdursa: "Bağışlayın, bu mövzuda kömək edə bilmirəm. 01 Code Studio-nun vebsayt, mobil tətbiq və ya digər rəqəmsal həlləri ilə bağlı sualınız varsa, buyurun. 😊"
+
+🆘 "canlı dəstək", "operator", "insan", "dəstək", "canli" və s. sözlər olarsa:
+"Sizi canlı dəstəyə yönləndirirəm. Mütəxəssislər tezliklə sizinlə əlaqə saxlayacaqlar. 😊"
+
+Cavabını həmişə ${lang} dilində, səhvsiz, isti və təbii tonla yaz.`;
+}
+
+// ==================== YENİ askGroq ====================
+async function askGroq(prompt, contextService = null, language = "az") {
+  if (!groqClient) {
+    return "Üzr istəyirəm, hazırda texniki problem var. Bir az sonra yenidən yaza bilərsiniz. 😊";
+  }
+
+  let systemPrompt = getSystemPrompt(language);
+  
+  if (contextService) {
+    systemPrompt += `\n\nİstifadəçi hazırda "${contextService}" xidməti haqqında danışır. Cavabını bu kontekstdə ver.`;
+  }
+
+  try {
+    const response = await groqClient.chat.completions.create({
+      model: CONFIG.GROQ_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.65,
+      max_tokens: 600,
+      top_p: 0.9,
+    });
+
+    let reply = response.choices[0]?.message?.content?.trim();
+
+    if (!reply || reply.length < 8) {
+      return "Bağışlayın, sualınızı tam başa düşmədim. Bir az daha aydın yaza bilərsiniz? 😊";
+    }
+
+    return reply;
+  } catch (e) {
+    console.error("Groq xətası:", e.message);
+    return "Texniki problem yarandı. Zəhmət olmasa sualınızı təkrar yazın. 😊";
+  }
+}
+
 // Xidmət təsvirləri
 const SERVICE_DETAILS = {
   website: {
@@ -160,68 +236,6 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// ✅ DÜZƏLDİLMİŞ PROMPT - funksiya şəklində
-function getSystemPrompt(language) {
-  const lang = language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis";
-  return `Sən 01 Code Studio-nun rəsmi köməkçisisən.
-
-⚠️ ÇOX VACİB QAYDALAR:
-1. Cavabların TAM BAŞA DÜŞÜLƏN, SƏHVSİZ, MƏNTİQLİ və İNSAN DANIŞIĞI KİMİ olsun.
-2. HEÇ BİR SÖZÜ TƏKRAR ETMƏ. Eyni fikri başqa cür ifadə etmə.
-3. "yəni", "belə ki", "deməli" kimi lazımsız bağlayıcılardan istifadə etmə.
-4. Hər cavabda 1-2 emoji istifadə et, amma çox da şişirtmə.
-5. Cavab uzunluğu suala uyğun olsun: qısa suala qısa, ətraflı suala ətraflı cavab ver.
-6. HEÇ VAXT UYDURMA MƏLUMAT VERMƏ!
-
-📌 ŞİRKƏT HAQQINDA DƏQİQ MƏLUMAT (BUNLARDAN KƏNARA ÇIXMA):
-- Şirkət adı: 01 Code Studio
-- Sayt: https://01cs.site
-- Təklif linki: https://01cs.site/teklif-al.html
-- Portfolio: https://01cs.site/portfolio
-- Email: info@01cs.site
-- WhatsApp: wa.me/994107172034
-- Telefon: +994107172034
-- Xidmətlər: Vebsayt (520-13000 AZN), Mobil Tətbiq (2600-43000 AZN), ERP/CRM (7000-43000 AZN), SEO (450-1800 AZN/ay), Texniki Dəstək (250-1500 AZN/saat)
-
-🚫 ƏLAQƏSİZ SUALLAR:
-Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar, tarix, coğrafiya və s.), BİRBAŞA bu cavabı yaz:
-"Bu sual mənim ixtisasım xaricindədir. Mən yalnız 01 Code Studio-nun xidmətləri haqqında məlumat verə bilərəm. 😊"
-
-🆘 CANLI DƏSTƏK:
-Əgər istifadəçi "canlı dəstək", "operator", "insan", "müştəri xidmətləri", "real dəstək", "canlı yardım", "operatör", "canlı destek", "operator çağır", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin" kimi ifadələr işlədərsə, cavabında "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊" yaz.
-
-Cavabını həmişə ${lang} dilində yaz.`;
-}
-
-async function askGroq(prompt, contextService = null, language = "az") {
-  if (!groqClient) {
-    return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
-  }
-
-  let systemPrompt = getSystemPrompt(language);
-  
-  if (contextService) {
-    systemPrompt += `\n\nİstifadəçi hazırda "${contextService}" xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ona uyğun cavablandır.`;
-  }
-
-  try {
-    const response = await groqClient.chat.completions.create({
-      model: CONFIG.GROQ_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 500,
-    });
-    let reply = response.choices[0]?.message?.content?.trim() || "Cavab alınmadı.";
-    return reply;
-  } catch (e) {
-    console.error("Groq xətası:", e.message);
-    return "Üzr istəyirik, texniki problem yarandı. Sualınızı bir az sonra təkrarlayın. 😊";
-  }
-}
-
 // ✅ GENİŞLƏNDİRİLMİŞ canlı dəstək açar sözləri
 const LIVE_KEYWORDS = {
   az: [
@@ -266,7 +280,7 @@ const MENUS = {
     services: "1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP/CRM\n4️⃣ SEO\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyu",
     about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0️⃣ Ana menyu",
     contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0️⃣ Ana menyu",
-    liveSupport: "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊"
+    liveSupport: "Sizi canlı dəstəyə yönləndirirəm. Mütəxəssislər tezliklə əlaqə saxlayacaqlar. 😊"
   },
   ru: {
     main: "Добро пожаловать! 👋\n\n1️⃣ Услуги\n2️⃣ О нас\n3️⃣ Контакты\n\nЯзык: az, ru, en",
@@ -284,8 +298,11 @@ const MENUS = {
   }
 };
 
+// ==================== YENİ getResponse ====================
 async function getResponse(userId, text, username = "user") {
   const raw = text.trim();
+  if (!raw) return "Salam! Nə ilə bağlı kömək edə bilərəm? 😊";
+
   const lower = raw.toLowerCase();
   let { state, lastService, language, blocked, detailLevel } = getUserState(userId);
   if (blocked) return null;
@@ -325,8 +342,6 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "contact" });
       return MENUS[language].contact;
     }
-    const ai = await askGroq(raw, null, language);
-    return ai || MENUS[language].main;
   }
 
   if (state === "services") {
@@ -354,8 +369,6 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "main" });
       return MENUS[language].main;
     }
-    const ai = await askGroq(raw, null, language);
-    return ai || MENUS[language].services;
   }
 
   if (state === "sub") {
@@ -369,17 +382,16 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { detailLevel: newLevel });
       const extra = getAdditionalDetail(lastService, language, newLevel);
       if (extra) {
-        return `📌 Əlavə məlumat (${newLevel}/3):\n${extra}\n\n0️⃣ Xidmətlərə qayıt`;
+        return `📌 Əlavə məlumat (\( {newLevel}/3):\n \){extra}\n\n0️⃣ Xidmətlərə qayıt`;
       } else {
         return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰\n\n0️⃣ Xidmətlərə qayıt";
       }
     }
-    const ai = await askGroq(raw, lastService, language);
-    return ai || MENUS[language].services;
   }
 
-  setUserState(userId, { state: "main" });
-  return MENUS[language].main;
+  // Bütün digər hallarda AI ilə cavab ver
+  const ai = await askGroq(raw, lastService, language);
+  return ai || MENUS[language].main;
 }
 
 async function replyToDM(recipientId, message) {
@@ -447,7 +459,6 @@ app.post("/webhook", async (req, res) => {
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
         
-        // Lock ilə təkrar emalın qarşısı
         if (isProcessing(commentId)) {
           console.log(`⏭️ Şərh artıq emal olunur: ${commentId}`);
           continue;
@@ -461,17 +472,14 @@ app.post("/webhook", async (req, res) => {
         
         try {
           logAnalytics(fromUser, "comment", commentText);
-          console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
+          console.log(`📩 Şərh: @\( {fromUser} → " \){commentText}"`);
 
-          // Standart cavab
           await replyToComment(commentId, "Şərhiniz DM-də cavablandırıldı ✔️");
           console.log(`💬 Şərhə standart cavab yazıldı`);
           
-          // DM göndər
           await sendDM(commentId, MENUS.az.main);
           console.log(`✉️ DM göndərildi → @${fromUser}`);
           
-          // İşlənmiş kimi qeyd et
           markProcessed(commentId);
         } catch (e) {
           console.log("⚠️ Şərh emal xətası:", e.message);
@@ -535,7 +543,7 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
       </div>
       <h2>İstifadəçi sessiyaları</h2>
       <table><thead><tr><th>ID</th><th>State</th><th>Son xidmət</th><th>Dil</th><th>Blok</th><th>Son aktivlik</th><th></th></tr></thead>
-      <tbody>${users.map(u => `<tr><td>${u.id}</td><td>${u.state}</td><td>${u.lastService || '-'}</td><td>${u.language}</td><td>${u.blocked ? 'Bloklu' : 'Açıq'}</td><td>${new Date(u.lastActive).toLocaleString()}</td><td>${u.blocked ? `<a href="/admin/unblock/${u.id}">Bloku aç</a>` : ''}</td></tr>`).join('')}</tbody>
+      <tbody>\( {users.map(u => `<tr><td> \){u.id}</td><td>\( {u.state}</td><td> \){u.lastService || '-'}</td><td>\( {u.language}</td><td> \){u.blocked ? 'Bloklu' : 'Açıq'}</td><td>\( {new Date(u.lastActive).toLocaleString()}</td><td> \){u.blocked ? `<a href="/admin/unblock/${u.id}">Bloku aç</a>` : ''}</td></tr>`).join('')}</tbody>
       </table>
     </body></html>
   `);
@@ -545,5 +553,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq ilə isləyir (təkmil) ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Groq ilə işləyir (yenilənmiş) ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
