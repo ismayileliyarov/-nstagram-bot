@@ -18,8 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-3.5-flash", // İstifadəçinin istədiyi model
-  FALLBACK_MODEL: "gemini-pro", // Uğursuz olarsa fallback
+  GEMINI_MODEL: "gemini-3.5-flash", // Sizin istədiyiniz model, FALLBACK YOXDUR
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -187,29 +186,20 @@ Cavab dili: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" 
 İstifadəçinin sualı: ${prompt}
 ${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
 
-  // İlk olaraq istifadəçinin seçdiyi model ilə cəhd et
-  const modelsToTry = [CONFIG.GEMINI_MODEL, CONFIG.FALLBACK_MODEL];
-  let lastError = null;
-
-  for (const modelName of modelsToTry) {
-    try {
-      console.log(`🤖 Cəhd edilən model: ${modelName}`);
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(systemPrompt);
-      let reply = result.response.text().trim();
-      if (reply.length > 800) reply = reply.substring(0, 800) + "...";
-      if (!reply) throw new Error("Boş cavab");
-      return reply;
-    } catch (e) {
-      lastError = e;
-      console.error(`❌ Model ${modelName} xətası:`, e.message);
-      // Əgər fallback modelə keçirik və uğursuz olarsa, davam et
-    }
+  try {
+    // Yalnız sizin istədiyiniz model istifadə olunur - FALLBACK YOXDUR
+    const modelName = CONFIG.GEMINI_MODEL;
+    console.log(`🤖 İstifadə olunan model: ${modelName}`);
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContent(systemPrompt);
+    let reply = result.response.text().trim();
+    if (reply.length > 800) reply = reply.substring(0, 800) + "...";
+    if (!reply) throw new Error("Boş cavab");
+    return reply;
+  } catch (e) {
+    console.error(`❌ Gemini xətası (${CONFIG.GEMINI_MODEL}):`, e.message);
+    return "Üzr istəyirik, texniki problem səbəbindən cavab verə bilmirəm. Sualınızı bir az sonra təkrarlayın və ya bizimlə əlaqə saxlayın: https://01cs.site 😊";
   }
-
-  // Bütün cəhdlər uğursuz oldu
-  console.error("Bütün modellər uğursuz oldu:", lastError?.message);
-  return "Üzr istəyirik, texniki problem səbəbindən cavab verə bilmirəm. Sualınızı bir az sonra təkrarlayın və ya bizimlə əlaqə saxlayın: https://01cs.site 😊";
 }
 
 const LIVE_KEYWORDS = {
@@ -500,5 +490,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini AI ilə isləyir, dostyana və emojili ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Gemini AI (gemini-3.5-flash) ilə isləyir ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
