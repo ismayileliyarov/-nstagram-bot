@@ -3,7 +3,7 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const session = require("express-session");
 const fs = require("fs");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const Groq = require("groq-sdk");
 
 const app = express();
 app.use(express.json());
@@ -17,17 +17,17 @@ app.use(session({
 const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-3.5-flash",
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  GROQ_MODEL: process.env.GROQ_MODEL || "gpt-oss-20b", // Ən yaxşı model
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
   PORT: process.env.PORT || 3000,
 };
 
-let genAI = null;
-if (CONFIG.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
+let groqClient = null;
+if (CONFIG.GROQ_API_KEY) {
+  groqClient = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
 }
 
 const ANALYTICS_FILE = "/tmp/analytics.json";
@@ -138,16 +138,15 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// ✅ SKRAPİNQ LƏĞV EDİLDİ - default məlumat istifadə olunacaq
+// ✅ SKRAPİNQ LƏĞV EDİLDİ - default məlumat
 const DEFAULT_COMPANY_INFO = "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkətidir. Şirkət 2023-cü ildə yaradılıb və hazırda 10-dan çox işçisi var.";
 
-// Sürətli AI sorğusu (skrapinqsiz)
-async function askGemini(prompt, contextService = null, language = "az") {
-  if (!genAI) {
+// Groq AI sorğusu
+async function askGroq(prompt, contextService = null, language = "az") {
+  if (!groqClient) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
 
-  // Birbaşa default məlumat (skrapinq yoxdur)
   const companyInfo = DEFAULT_COMPANY_INFO;
 
   const systemPrompt = `Sən 01 Code Studio-nun dostyana köməkçisisən. 😊
@@ -165,17 +164,20 @@ ${contextService ? `İstifadəçi ${contextService} xidmətinə baxır.` : ""}
 İstifadəçi: ${prompt}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: CONFIG.GEMINI_MODEL });
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-      generationConfig: { maxOutputTokens: 200, temperature: 0.7 }
+    const response = await groqClient.chat.completions.create({
+      model: CONFIG.GROQ_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 250,
     });
-    let reply = result.response.text().trim();
+    let reply = response.choices[0]?.message?.content?.trim() || "Cavab alınmadı.";
     if (reply.length > 500) reply = reply.substring(0, 500) + "...";
-    if (!reply) throw new Error("Boş cavab");
     return reply;
   } catch (e) {
-    console.error("Gemini xətası:", e.message);
+    console.error("Groq xətası:", e.message);
     return "Üzr istəyirik, texniki problem. Sualınızı bir az sonra təkrarlayın və ya https://01cs.site 😊";
   }
 }
@@ -263,7 +265,7 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "contact" });
       return MENUS[language].contact;
     }
-    const ai = await askGemini(raw, null, language);
+    const ai = await askGroq(raw, null, language);
     if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, raw, username);
       setUserState(userId, { blocked: true });
@@ -297,7 +299,7 @@ async function getResponse(userId, text, username = "user") {
       setUserState(userId, { state: "main" });
       return MENUS[language].main;
     }
-    const ai = await askGemini(raw, null, language);
+    const ai = await askGroq(raw, null, language);
     if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, raw, username);
       setUserState(userId, { blocked: true });
@@ -322,7 +324,7 @@ async function getResponse(userId, text, username = "user") {
         return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰\n\n0️⃣ Xidmətlərə qayıt";
       }
     }
-    const ai = await askGemini(raw, lastService, language);
+    const ai = await askGroq(raw, lastService, language);
     if (ai && (ai.includes("canli dəstəyə") || ai.includes("yönləndiririk"))) {
       await sendTelegramNotification(userId, raw, username);
       setUserState(userId, { blocked: true });
@@ -467,5 +469,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini ilə isləyir (skrapinqsiz, sürətli) ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Groq (gpt-oss-20b) ilə isləyir, sürətli ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
