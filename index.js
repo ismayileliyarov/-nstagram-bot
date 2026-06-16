@@ -18,7 +18,8 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-pro",
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-3.5-flash", // İstifadəçinin istədiyi model
+  FALLBACK_MODEL: "gemini-pro", // Uğursuz olarsa fallback
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -81,7 +82,7 @@ function setUserState(userId, updates) {
   userStates.set(userId, { ...existing, ...updates, lastActive: Date.now() });
 }
 
-// Xidmət təsvirləri (qısaldılmış, emojili)
+// Xidmət təsvirləri (emojili)
 const SERVICE_DETAILS = {
   website: {
     az: `💻 **Vebsayt Hazırlanması**
@@ -101,12 +102,12 @@ const SERVICE_DETAILS = {
 🔗 Dəqiq təklif: https://01cs.site/teklif-al.html
 
 0️⃣ Xidmətlərə qayıt`,
-    ru: `💻 **Разработка веб-сайтов**\n\n📌 Типы услуг:\n• Визитка / Landing page – 520-1300 AZN (7-14 дней)\n• Корпоративный сайт – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптивный дизайн, SEO, платёжные системы, админ-панель, 1 месяц бесплатной техподдержки.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
-    en: `💻 **Website Development**\n\n📌 Service types:\n• Business card / Landing page – 520-1300 AZN (7-14 days)\n• Corporate website – 1300-4400 AZN (30-60 days)\n• E-commerce website – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive design, SEO, payment systems, admin panel, 1 month free support.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
+    ru: `💻 **Разработка веб-сайтов**\n\n📌 Типы услуг:\n• Визитка / Landing page – 520-1300 AZN (7-14 дней)\n• Корпоративный сайт – 1300-4400 AZN (30-60 дней)\n• Интернет-магазин – 2600-13000 AZN (60-120 дней)\n\n✨ Особенности: адаптивный дизайн, SEO-подготовка, интеграция платёжных систем, админ-панель, 1 месяц бесплатной техподдержки.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    en: `💻 **Website Development**\n\n📌 Service types:\n• Business card / Landing page – 520-1300 AZN (7-14 days)\n• Corporate website – 1300-4400 AZN (30-60 days)\n• E-commerce website – 2600-13000 AZN (60-120 days)\n\n✨ Features: responsive design, SEO ready, payment system integration, admin panel, 1 month free support.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   mobile: {
     az: `📱 **Mobil Tətbiq Hazırlanması**\n\n📌 Səviyyələr:\n• Sadə – 2600-6000 AZN (30-45 gün)\n• Orta – 6000-15500 AZN (60-90 gün)\n• Mürəkkəb – 13000-43000 AZN (90-180 gün)\n\n✨ Xüsusiyyətlər: Native iOS/Android, push, ödəniş, chat, GPS, admin panel.\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `📱 **Разработка мобильных приложений**\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные iOS/Android, push, оплата, чат, GPS, админ-панель.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    ru: `📱 **Разработка мобильных приложений**\n\n📌 Уровни:\n• Простое – 2600-6000 AZN (30-45 дней)\n• Среднее – 6000-15500 AZN (60-90 дней)\n• Сложное – 13000-43000 AZN (90-180 дней)\n\n✨ Особенности: нативные iOS/Android, push-уведомления, платёжные системы, чат, GPS, админ-панель.\n\n🔗 Точная цена: https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
     en: `📱 **Mobile App Development**\n\n📌 Levels:\n• Simple – 2600-6000 AZN (30-45 days)\n• Medium – 6000-15500 AZN (60-90 days)\n• Complex – 13000-43000 AZN (90-180 days)\n\n✨ Features: Native iOS/Android, push, payments, chat, GPS, admin panel.\n\n🔗 Detailed offer: https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   },
   erp: {
@@ -121,7 +122,7 @@ const SERVICE_DETAILS = {
   },
   support: {
     az: `🛠️ **Texniki Dəstək**\n\n📌 Xidmət daxildir: təhlükəsizlik yeniləmələri, sürət optimizasiyası, xəta düzəlişləri, yeni funksiyalar, 24/7 dəstək.\n💰 Qiymət: 250-1500 AZN/saat (və ya abunə)\n⏱ Cavab müddəti: 1-2 saat\n\n🔗 Dəqiq təklif: https://01cs.site/teklif-al.html\n\n0️⃣ Xidmətlərə qayıt`,
-    ru: `🛠️ **Техническая поддержка**\n\n💰 Цена: 250-1500 AZN/час (или абонемент)\n📌 Обновления, оптимизация, исправление ошибок, новые функции. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
+    ru: `🛠️ **Техническая поддержка**\n\n💰 Цена: 250-1500 AZN/час (или абонемент)\n📌 Обновления безопасности, оптимизация скорости, исправление ошибок, новые функции. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Назад к услугам`,
     en: `🛠️ **Technical Support**\n\n💰 Price: 250-1500 AZN/hour (or monthly subscription)\n📌 Security updates, speed optimization, bug fixes, new features. 24/7.\n\n🔗 https://01cs.site/teklif-al.html\n\n0️⃣ Back to Services`
   }
 };
@@ -186,20 +187,29 @@ Cavab dili: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" 
 İstifadəçinin sualı: ${prompt}
 ${contextService ? `İstifadəçi hazırda ${contextService} xidmətinə baxır.` : ""}`;
 
-  try {
-    // Model adı environment-dən götürülür (default: gemini-pro)
-    const modelName = CONFIG.GEMINI_MODEL;
-    console.log(`🤖 İstifadə olunan model: ${modelName}`);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent(systemPrompt);
-    let reply = result.response.text().trim();
-    if (reply.length > 800) reply = reply.substring(0, 800) + "...";
-    if (!reply) throw new Error("Boş cavab");
-    return reply;
-  } catch (e) {
-    console.error("Gemini xətası:", e.message);
-    return "Üzr istəyirik, texniki problem səbəbindən cavab verə bilmirəm. Sualınızı bir az sonra təkrarlayın və ya bizimlə əlaqə saxlayın: https://01cs.site 😊";
+  // İlk olaraq istifadəçinin seçdiyi model ilə cəhd et
+  const modelsToTry = [CONFIG.GEMINI_MODEL, CONFIG.FALLBACK_MODEL];
+  let lastError = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      console.log(`🤖 Cəhd edilən model: ${modelName}`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(systemPrompt);
+      let reply = result.response.text().trim();
+      if (reply.length > 800) reply = reply.substring(0, 800) + "...";
+      if (!reply) throw new Error("Boş cavab");
+      return reply;
+    } catch (e) {
+      lastError = e;
+      console.error(`❌ Model ${modelName} xətası:`, e.message);
+      // Əgər fallback modelə keçirik və uğursuz olarsa, davam et
+    }
   }
+
+  // Bütün cəhdlər uğursuz oldu
+  console.error("Bütün modellər uğursuz oldu:", lastError?.message);
+  return "Üzr istəyirik, texniki problem səbəbindən cavab verə bilmirəm. Sualınızı bir az sonra təkrarlayın və ya bizimlə əlaqə saxlayın: https://01cs.site 😊";
 }
 
 const LIVE_KEYWORDS = {
