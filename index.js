@@ -389,7 +389,7 @@ async function getResponse(userId, text, username = "user") {
     }
   }
 
-  // Bütün digər hallarda AI ilə cavab ver
+  // Bütün digər hallarda AI istifadə et
   const ai = await askGroq(raw, lastService, language);
   return ai || MENUS[language].main;
 }
