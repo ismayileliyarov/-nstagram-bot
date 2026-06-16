@@ -18,7 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GROQ_API_KEY: process.env.GROQ_API_KEY,
-  GROQ_MODEL: process.env.GROQ_MODEL || "gpt-oss-20b", // Ən yaxşı model
+  GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.1-8b-instant", // İnstant model
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -138,10 +138,10 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// ✅ SKRAPİNQ LƏĞV EDİLDİ - default məlumat
+// SKRAPİNQ LƏĞV EDİLDİ - default məlumat
 const DEFAULT_COMPANY_INFO = "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkətidir. Şirkət 2023-cü ildə yaradılıb və hazırda 10-dan çox işçisi var.";
 
-// Groq AI sorğusu
+// Groq AI sorğusu (llama-3.1-8b-instant)
 async function askGroq(prompt, contextService = null, language = "az") {
   if (!groqClient) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
@@ -469,5 +469,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq (gpt-oss-20b) ilə isləyir, sürətli ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Groq (llama-3.1-8b-instant) ilə isləyir ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
