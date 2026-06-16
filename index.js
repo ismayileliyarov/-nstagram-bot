@@ -52,7 +52,7 @@ async function sendTelegramNotification(userId, userMessage, username = "istifad
   } catch (e) { console.log("Telegram xətası:", e.message); }
 }
 
-// Təkmilləşdirilmiş processedIds - lock mexanizmi ilə
+// Processed IDs
 const processedIds = new Map();
 const processingLocks = new Set();
 
@@ -111,7 +111,7 @@ function getSystemPrompt(language) {
 
 ⚠️ ÇOX VACİB QAYDALAR:
 1. Hər zaman tam səhvsiz və qrammatik cəhətdən doğru ${lang} dili işlət. Heç bir hərf səhvi olmasın.
-2. Hər gələn mesaj a mütləq cavab ver. Heç vaxt boş cavab vermə və ya susma.
+2. Hər gələn mesaja mütləq cavab ver. Heç vaxt boş cavab vermə.
 3. Cavablar sadə, təbii və insan kimi olsun. Robot kimi danışma.
 4. Hər cavabda 1-2 emoji istifadə et, amma çox şişirtmə.
 5. Eyni söz və ya cümləni təkrar etmə.
@@ -133,11 +133,8 @@ Xidmətlər:
 • SEO (450-1800 AZN/ay)
 • Texniki dəstək (250-1500 AZN/saat)
 
-🚫 Əlaqəsiz və ya mənasız mesajlara:
-Mümkün qədər nəzakətlə şirkət xidmətlərinə yönəlt. Əgər heç bir əlaqə yoxdursa: "Bağışlayın, bu mövzuda kömək edə bilmirəm. 01 Code Studio-nun vebsayt, mobil tətbiq və ya digər rəqəmsal həlləri ilə bağlı sualınız varsa, buyurun. 😊"
-
-🆘 "canlı dəstək", "operator", "insan", "dəstək", "canli" və s. sözlər olarsa:
-"Sizi canlı dəstəyə yönləndirirəm. Mütəxəssislər tezliklə sizinlə əlaqə saxlayacaqlar. 😊"
+🚫 Əlaqəsiz və ya mənasız mesajlara nəzakətlə cavab ver və xidmətlərə yönəlt.
+🆘 Canlı dəstək istəsə: "Sizi canlı dəstəyə yönləndirirəm..."
 
 Cavabını həmişə ${lang} dilində, səhvsiz, isti və təbii tonla yaz.`;
 }
@@ -210,51 +207,21 @@ const SERVICE_DETAILS = {
 
 function getAdditionalDetail(service, lang, level) {
   const extra = {
-    website: {
-      2: "Əlavə: Google Maps, onlayn randevu, blog, çoxdillilik, GDPR. 🌐",
-      3: "Daha ətraflı: https://01cs.site/portfolio"
-    },
-    mobile: {
-      2: "Əlavə: Offline, biometrik, sosial paylaşım, Firebase, Mixpanel. 📱",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    erp: {
-      2: "Əlavə: Mobil app, təsdiq axınları, avtomatik email/sms, e-imza. ⚙️",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    seo: {
-      2: "Əlavə: Lokal SEO, voice search, Core Web Vitals, schema markup. 🔍",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    },
-    support: {
-      2: "Əlavə: SLA, aylıq hesabat, prioritet xətt. 🛠️",
-      3: "Daha ətraflı: https://01cs.site/teklif-al.html"
-    }
+    website: { 2: "Əlavə: Google Maps, onlayn randevu, blog, çoxdillilik, GDPR. 🌐", 3: "Daha ətraflı: https://01cs.site/portfolio" },
+    mobile: { 2: "Əlavə: Offline, biometrik, sosial paylaşım, Firebase, Mixpanel. 📱", 3: "Daha ətraflı: https://01cs.site/teklif-al.html" },
+    erp: { 2: "Əlavə: Mobil app, təsdiq axınları, avtomatik email/sms, e-imza. ⚙️", 3: "Daha ətraflı: https://01cs.site/teklif-al.html" },
+    seo: { 2: "Əlavə: Lokal SEO, voice search, Core Web Vitals, schema markup. 🔍", 3: "Daha ətraflı: https://01cs.site/teklif-al.html" },
+    support: { 2: "Əlavə: SLA, aylıq hesabat, prioritet xətt. 🛠️", 3: "Daha ətraflı: https://01cs.site/teklif-al.html" }
   };
   if (level === 2) return extra[service]?.[2] || "Əlavə məlumat: https://01cs.site/teklif-al.html";
   if (level >= 3) return extra[service]?.[3] || "Bütün detallar: https://01cs.site/teklif-al.html";
   return "";
 }
 
-// ✅ GENİŞLƏNDİRİLMİŞ canlı dəstək açar sözləri
 const LIVE_KEYWORDS = {
-  az: [
-    "canlı dəstək", "canli destek", "operator", "operatör", "operator çağır", "operator cagir",
-    "insan dəstək", "insan destek", "müştəri xidmətləri", "musteri xidmetleri",
-    "canlı dəstəyə yönləndirin", "canli destege yonlendirin",
-    "real dəstək", "real destek", "canlı yardım", "canli yardim",
-    "dəstək xidməti", "destek xidmeti", "yardım", "yardim",
-    "canlı", "canli", "dəstək", "destek"
-  ],
-  ru: [
-    "живая поддержка", "живой чат", "оператор", "позвать оператора",
-    "служба поддержки", "помощь", "человек"
-  ],
-  en: [
-    "live support", "live chat", "operator", "call operator",
-    "human support", "talk to human", "customer service",
-    "help", "support", "agent"
-  ]
+  az: ["canlı dəstək", "canli destek", "operator", "operatör", "insan dəstək", "canlı", "dəstək", "yardım"],
+  ru: ["живая поддержка", "оператор", "помощь"],
+  en: ["live support", "operator", "help"]
 };
 
 function isLiveRequest(text) {
@@ -267,18 +234,13 @@ function isLiveRequest(text) {
   return false;
 }
 
-const DETAIL_KEYWORDS = [
-  "ətrafli", "daha ətrafli", "etrafli", "daha etrafli", "əlavə məlumat", "more info", "подробнее",
-  "daha çox", "ətraflı məlumat", "etrafli melumat", "daha ətraflı məlumat verə bilərsiniz",
-  "etrafli melumat ver", "daha ətraflı məlumat verin", "ətraflı məlumat verin", "daha ətraflı cavab",
-  "daha ətraflı cavab verin"
-];
+const DETAIL_KEYWORDS = ["ətrafli", "daha ətrafli", "ətraflı", "daha ətraflı", "əlavə məlumat"];
 
 const MENUS = {
   az: {
     main: "Salam! 👋 01 Code Studio-ya xoş gəlmisiniz! 😊\n\nSizə necə kömək edə bilərəm?\n\n1️⃣ Xidmətlərimiz\n2️⃣ Haqqımızda\n3️⃣ Əlaqə\n\nDil: az, ru, en",
     services: "1️⃣ Vebsayt\n2️⃣ Mobil Tətbiq\n3️⃣ ERP/CRM\n4️⃣ SEO\n5️⃣ Texniki Dəstək\n0️⃣ Ana menyu",
-    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site | 📸 @01cs.az\n0️⃣ Ana menyu",
+    about: "01 Code Studio — peşəkar proqram həlləri. 🌐 www.01cs.site\n0️⃣ Ana menyu",
     contact: "📧 info@01cs.site\n💬 wa.me/994107172034\n📞 +994107172034\n0️⃣ Ana menyu",
     liveSupport: "Sizi canlı dəstəyə yönləndirirəm. Mütəxəssislər tezliklə əlaqə saxlayacaqlar. 😊"
   },
@@ -312,12 +274,10 @@ async function getResponse(userId, text, username = "user") {
     setUserState(userId, { language });
   }
 
-  // Dil dəyişmə
   if (lower === "az") { setUserState(userId, { language: "az", state: "main" }); return MENUS.az.main; }
   if (lower === "ru") { setUserState(userId, { language: "ru", state: "main" }); return MENUS.ru.main; }
   if (lower === "en") { setUserState(userId, { language: "en", state: "main" }); return MENUS.en.main; }
 
-  // Canlı dəstək - birinci prioritet
   if (isLiveRequest(raw)) {
     await sendTelegramNotification(userId, raw, username);
     setUserState(userId, { blocked: true });
@@ -330,49 +290,49 @@ async function getResponse(userId, text, username = "user") {
   }
 
   if (state === "main") {
-    if (lower === "1" || lower === "1." || lower === "1️⃣") {
+    if (["1","1.","1️⃣"].includes(lower)) {
       setUserState(userId, { state: "services" });
       return MENUS[language].services;
     }
-    if (lower === "2" || lower === "2." || lower === "2️⃣") {
+    if (["2","2.","2️⃣"].includes(lower)) {
       setUserState(userId, { state: "about" });
       return MENUS[language].about;
     }
-    if (lower === "3" || lower === "3." || lower === "3️⃣") {
+    if (["3","3.","3️⃣"].includes(lower)) {
       setUserState(userId, { state: "contact" });
       return MENUS[language].contact;
     }
   }
 
   if (state === "services") {
-    if (lower === "1" || lower === "1." || lower === "1️⃣") {
+    if (["1","1.","1️⃣"].includes(lower)) {
       setUserState(userId, { state: "sub", lastService: "website", detailLevel: 1 });
       return SERVICE_DETAILS.website[language] || SERVICE_DETAILS.website.az;
     }
-    if (lower === "2" || lower === "2." || lower === "2️⃣") {
+    if (["2","2.","2️⃣"].includes(lower)) {
       setUserState(userId, { state: "sub", lastService: "mobile", detailLevel: 1 });
       return SERVICE_DETAILS.mobile[language] || SERVICE_DETAILS.mobile.az;
     }
-    if (lower === "3" || lower === "3." || lower === "3️⃣") {
+    if (["3","3.","3️⃣"].includes(lower)) {
       setUserState(userId, { state: "sub", lastService: "erp", detailLevel: 1 });
       return SERVICE_DETAILS.erp[language] || SERVICE_DETAILS.erp.az;
     }
-    if (lower === "4" || lower === "4." || lower === "4️⃣") {
+    if (["4","4.","4️⃣"].includes(lower)) {
       setUserState(userId, { state: "sub", lastService: "seo", detailLevel: 1 });
       return SERVICE_DETAILS.seo[language] || SERVICE_DETAILS.seo.az;
     }
-    if (lower === "5" || lower === "5." || lower === "5️⃣") {
+    if (["5","5.","5️⃣"].includes(lower)) {
       setUserState(userId, { state: "sub", lastService: "support", detailLevel: 1 });
       return SERVICE_DETAILS.support[language] || SERVICE_DETAILS.support.az;
     }
-    if (lower === "0" || lower === "0." || lower === "0️⃣") {
+    if (["0","0.","0️⃣"].includes(lower)) {
       setUserState(userId, { state: "main" });
       return MENUS[language].main;
     }
   }
 
   if (state === "sub") {
-    if (lower === "0" || lower === "0." || lower === "0️⃣") {
+    if (["0","0.","0️⃣"].includes(lower)) {
       setUserState(userId, { state: "services", detailLevel: 1 });
       return MENUS[language].services;
     }
@@ -383,17 +343,16 @@ async function getResponse(userId, text, username = "user") {
       const extra = getAdditionalDetail(lastService, language, newLevel);
       if (extra) {
         return `📌 Əlavə məlumat (\( {newLevel}/3):\n \){extra}\n\n0️⃣ Xidmətlərə qayıt`;
-      } else {
-        return "Başqa əlavə məlumat yoxdur. Dəqiq təklif üçün linkə keçin: https://01cs.site/teklif-al.html 💰\n\n0️⃣ Xidmətlərə qayıt";
       }
     }
   }
 
-  // Bütün digər hallarda AI istifadə et
+  // AI cavabı
   const ai = await askGroq(raw, lastService, language);
   return ai || MENUS[language].main;
 }
 
+// Reply funksiyaları
 async function replyToDM(recipientId, message) {
   if (!message) return;
   try {
@@ -401,39 +360,29 @@ async function replyToDM(recipientId, message) {
       recipient: { id: recipientId }, message: { text: message }
     }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
   } catch (e) {
-    console.error("replyToDM xətası:", e.response?.data?.error?.message || e.message);
+    console.error("replyToDM xətası:", e.message);
   }
 }
+
 async function replyToComment(commentId, message) {
   try {
     await axios.post(`https://graph.instagram.com/v21.0/${commentId}/replies`, { message }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
   } catch (e) {
-    console.error("replyToComment xətası:", e.response?.data?.error?.message || e.message);
+    console.error("replyToComment xətası:", e.message);
   }
 }
+
 async function sendDM(commentId, message) {
   try {
     await axios.post("https://graph.instagram.com/v21.0/me/messages", {
       recipient: { comment_id: commentId }, message: { text: message }
     }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
   } catch (e) {
-    console.error("sendDM xətası:", e.response?.data?.error?.message || e.message);
-  }
-}
-async function sendMediaDM(recipientId, imageUrl, caption = "") {
-  try {
-    await axios.post("https://graph.instagram.com/v21.0/me/messages", {
-      recipient: { id: recipientId },
-      message: {
-        attachment: { type: "image", payload: { url: imageUrl } },
-        ...(caption && { text: caption })
-      }
-    }, { params: { access_token: CONFIG.IG_ACCESS_TOKEN } });
-  } catch (e) {
-    console.error("sendMediaDM xətası:", e.response?.data?.error?.message || e.message);
+    console.error("sendDM xətası:", e.message);
   }
 }
 
+// Webhook
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -450,52 +399,41 @@ app.post("/webhook", async (req, res) => {
   try {
     const body = req.body;
     if (body.object !== "instagram") return;
+
     for (const entry of body.entry || []) {
       const myId = entry.id;
+
+      // Comments
       for (const change of entry.changes || []) {
         if (change.field !== "comments") continue;
         const comment = change.value;
         const commentId = comment.id;
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
-        
-        if (isProcessing(commentId)) {
-          console.log(`⏭️ Şərh artıq emal olunur: ${commentId}`);
-          continue;
-        }
-        if (isProcessed(commentId)) {
-          console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
-          continue;
-        }
-        
+
+        if (isProcessing(commentId) || isProcessed(commentId)) continue;
+
         lockProcessing(commentId);
-        
         try {
           logAnalytics(fromUser, "comment", commentText);
-          console.log(`📩 Şərh: @\( {fromUser} → " \){commentText}"`);
-
           await replyToComment(commentId, "Şərhiniz DM-də cavablandırıldı ✔️");
-          console.log(`💬 Şərhə standart cavab yazıldı`);
-          
           await sendDM(commentId, MENUS.az.main);
-          console.log(`✉️ DM göndərildi → @${fromUser}`);
-          
           markProcessed(commentId);
         } catch (e) {
-          console.log("⚠️ Şərh emal xətası:", e.message);
+          console.log("Şərh emal xətası:", e.message);
         } finally {
           unlockProcessing(commentId);
         }
       }
 
-      // DM emalı
+      // DM
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
         const msgId = msg.message?.mid;
-        if (!text || !senderId || !msgId) continue;
-        if (senderId === myId) continue;
+        if (!text || !senderId || !msgId || senderId === myId) continue;
         if (isProcessed(msgId)) continue;
+
         logAnalytics(senderId, "dm", text);
         const username = msg.sender?.username || "user";
         const response = await getResponse(senderId, text, username);
@@ -503,20 +441,26 @@ app.post("/webhook", async (req, res) => {
         markProcessed(msgId);
       }
     }
-  } catch (err) { console.error("❌ Webhook xətası:", err.message); }
+  } catch (err) {
+    console.error("❌ Webhook xətası:", err.message);
+  }
 });
 
+// Admin Panel
 function isAdmin(req, res, next) {
   if (req.session.admin) return next();
   res.redirect("/admin/login");
 }
+
 app.get("/admin/login", (req, res) => {
-  res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="İstənilən şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
+  res.send(`<html><body style="font-family:sans-serif;text-align:center;margin-top:50px"><h2>Admin Girişi</h2><form method="post" action="/admin/login"><input type="password" name="pwd" placeholder="Şifrə" /><button type="submit">Daxil ol</button></form></body></html>`);
 });
+
 app.post("/admin/login", (req, res) => {
   req.session.admin = true;
   res.redirect("/admin/dashboard");
 });
+
 app.get("/admin/dashboard", isAdmin, (req, res) => {
   let analytics = [];
   if (fs.existsSync(ANALYTICS_FILE)) analytics = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
@@ -524,6 +468,7 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
   const unique = new Set(analytics.map(a => a.userId)).size;
   const blocked = [...userStates.values()].filter(s => s.blocked).length;
   const users = Array.from(userStates.entries()).map(([id, s]) => ({ id, ...s }));
+
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="UTF-8"><title>Admin Panel</title><style>
@@ -548,10 +493,13 @@ app.get("/admin/dashboard", isAdmin, (req, res) => {
     </body></html>
   `);
 });
+
 app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   const userId = req.params.userId;
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq ilə işləyir (yenilənmiş) ✅"));
-app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
+
+app.get("/", (req, res) => res.send("01CS Bot Groq ilə işləyir (tam versiya) ✅"));
+
+app.listen(CONFIG.PORT, () => console.log(`🚀 Server ${CONFIG.PORT} portunda işləyir`));
