@@ -18,7 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: "gemini-1.5-flash", // Düzəldilmiş model (işlək)
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-3.5-flash",
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -138,33 +138,17 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// Keşlənmiş sayt skrepi (1 saat)
-let siteCache = { data: null, timestamp: 0 };
-async function scrape01csSite() {
-  const now = Date.now();
-  if (siteCache.data && now - siteCache.timestamp < 3600000) {
-    return siteCache.data;
-  }
-  try {
-    const { data } = await axios.get("https://01cs.site", { timeout: 3000 });
-    const $ = cheerio.load(data);
-    const fullText = $("body").text().substring(0, 800);
-    siteCache.data = { fullText };
-    siteCache.timestamp = now;
-    return siteCache.data;
-  } catch (e) {
-    console.log("Skrep xətası (keş istifadə olunur):", e.message);
-    return siteCache.data || null;
-  }
-}
+// ✅ SKRAPİNQ LƏĞV EDİLDİ - default məlumat istifadə olunacaq
+const DEFAULT_COMPANY_INFO = "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkətidir. Şirkət 2023-cü ildə yaradılıb və hazırda 10-dan çox işçisi var.";
 
-// Sürətli AI sorğusu (düzəldilmiş model)
+// Sürətli AI sorğusu (skrapinqsiz)
 async function askGemini(prompt, contextService = null, language = "az") {
   if (!genAI) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
-  const siteInfo = await scrape01csSite();
-  const companyInfo = siteInfo?.fullText ? siteInfo.fullText.substring(0, 500) : "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərir.";
+
+  // Birbaşa default məlumat (skrapinq yoxdur)
+  const companyInfo = DEFAULT_COMPANY_INFO;
 
   const systemPrompt = `Sən 01 Code Studio-nun dostyana köməkçisisən. 😊
 
@@ -483,5 +467,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini 1.5 Flash ilə isləyir, sürətli ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Gemini ilə isləyir (skrapinqsiz, sürətli) ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
