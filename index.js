@@ -160,8 +160,10 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// ✅ YENİ PROMPT - mükəmməl insan dili, real məlumatlar, canlı dəstək
-const SYSTEM_PROMPT = `Sən 01 Code Studio-nun rəsmi köməkçisisən.
+// ✅ DÜZƏLDİLMİŞ PROMPT - funksiya şəklində
+function getSystemPrompt(language) {
+  const lang = language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis";
+  return `Sən 01 Code Studio-nun rəsmi köməkçisisən.
 
 ⚠️ ÇOX VACİB QAYDALAR:
 1. Cavabların TAM BAŞA DÜŞÜLƏN, SƏHVSİZ, MƏNTİQLİ və İNSAN DANIŞIĞI KİMİ olsun.
@@ -188,14 +190,15 @@ const SYSTEM_PROMPT = `Sən 01 Code Studio-nun rəsmi köməkçisisən.
 🆘 CANLI DƏSTƏK:
 Əgər istifadəçi "canlı dəstək", "operator", "insan", "müştəri xidmətləri", "real dəstək", "canlı yardım", "operatör", "canlı destek", "operator çağır", "insan dəstək", "müştəri xidmətləri", "canli dəstəyə yönləndirin" kimi ifadələr işlədərsə, cavabında "Sizi canlı dəstəyə yönləndiririk. Mütəxəssislər tezliklə əlaqə saxlayacaq. 😊" yaz.
 
-Cavabını həmişə ${language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis"} dilində yaz.`;
+Cavabını həmişə ${lang} dilində yaz.`;
+}
 
 async function askGroq(prompt, contextService = null, language = "az") {
   if (!groqClient) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
 
-  let systemPrompt = SYSTEM_PROMPT.replace(/\${language}/g, language === "az" ? "Azərbaycan" : language === "ru" ? "Rus" : "İngilis");
+  let systemPrompt = getSystemPrompt(language);
   
   if (contextService) {
     systemPrompt += `\n\nİstifadəçi hazırda "${contextService}" xidmətinə baxır. Sual bu xidmətlə bağlıdırsa, ona uyğun cavablandır.`;
@@ -208,7 +211,7 @@ async function askGroq(prompt, contextService = null, language = "az") {
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt }
       ],
-      temperature: 0.2, // Daha qəti, uydurmasız
+      temperature: 0.2,
       max_tokens: 500,
     });
     let reply = response.choices[0]?.message?.content?.trim() || "Cavab alınmadı.";
@@ -444,7 +447,7 @@ app.post("/webhook", async (req, res) => {
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
         
-        // ✅ Lock ilə təkrar emalın qarşısı
+        // Lock ilə təkrar emalın qarşısı
         if (isProcessing(commentId)) {
           console.log(`⏭️ Şərh artıq emal olunur: ${commentId}`);
           continue;
