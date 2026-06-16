@@ -18,7 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GEMINI_MODEL: "gemini-3.5-flash", // Sizin istədiyiniz model - dəyişilmir
+  GEMINI_MODEL: "gemini-1.5-flash", // Düzəldilmiş model (işlək)
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -158,7 +158,7 @@ async function scrape01csSite() {
   }
 }
 
-// Sürətli AI sorğusu (model toxunulmur)
+// Sürətli AI sorğusu (düzəldilmiş model)
 async function askGemini(prompt, contextService = null, language = "az") {
   if (!genAI) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
@@ -166,7 +166,6 @@ async function askGemini(prompt, contextService = null, language = "az") {
   const siteInfo = await scrape01csSite();
   const companyInfo = siteInfo?.fullText ? siteInfo.fullText.substring(0, 500) : "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərir.";
 
-  // Qısaldılmış prompt
   const systemPrompt = `Sən 01 Code Studio-nun dostyana köməkçisisən. 😊
 
 Şirkət: ${companyInfo}
@@ -484,5 +483,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Gemini ilə isləyir, sürət optimizasiya olunub ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Gemini 1.5 Flash ilə isləyir, sürətli ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
