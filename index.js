@@ -30,7 +30,7 @@ const CONFIG = {
 let groq = null;
 if (CONFIG.GROQ_API_KEY) {
   groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
-  console.log("✅ Groq AI hazırdır (llama-3.3-70b-versatile)");
+  console.log("✅ Groq AI hazırdır");
 } else {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
@@ -47,9 +47,9 @@ function logEvent(userId, action, details = "") {
       data = JSON.parse(fs.readFileSync(ANALYTICS_FILE, "utf8"));
     }
     data.push({
-      userId: String(userId).slice(-8),
+      userId: String(userId || "unknown").slice(-8),
       action,
-      details: String(details).slice(0, 150),
+      details: String(details || "").slice(0, 150),
       time: new Date().toISOString()
     });
     if (data.length > 2000) data = data.slice(-1500);
@@ -61,7 +61,10 @@ function logEvent(userId, action, details = "") {
 // TELEGRAM BİLDİRİŞ
 // ════════════════════════════════════════════════════
 async function notifyTelegram(userId, message, username = "") {
-  if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
+  if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) {
+    console.log("⚠️ Telegram bildirişi üçün token və ya chat ID təyin edilməyib.");
+    return;
+  }
   try {
     await axios.post(
       `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -70,8 +73,9 @@ async function notifyTelegram(userId, message, username = "") {
         text: `🔔 CANLI DƏSTƏK TƏLƏBİ\n\n👤 @${username || "istifadəçi"}\n🆔 ${String(userId).slice(-8)}\n💬 ${String(message).slice(0, 300)}`
       }
     );
+    console.log("✅ Telegram bildirişi göndərildi");
   } catch (e) {
-    console.log("Telegram xətası:", e.message);
+    console.log("❌ Telegram xətası:", e.message);
   }
 }
 
@@ -101,22 +105,37 @@ function unlock(id) { processingLocks.delete(id); }
 const users = new Map();
 
 function getUser(userId) {
-  if (!users.has(userId)) {
-    users.set(userId, {
+  const id = String(userId);
+  if (!users.has(id)) {
+    users.set(id, {
       state: "main",
       language: "az",
       lastService: null,
       blocked: false,
+      blockedSince: null,
       lastActive: Date.now(),
       messageCount: 0,
       history: []
     });
   }
-  const u = users.get(userId);
+  const u = users.get(id);
+  
+  // 30 dəqiqə sessiya timeout – blocked flag-ı da sıfırla
   if (Date.now() - u.lastActive > 1800000) {
     u.state = "main";
     u.history = [];
+    u.blocked = false;
+    u.blockedSince = null;
   }
+  
+  // Bloklama müddəti 30 dəqiqədirsə, avtomatik aç
+  if (u.blocked && u.blockedSince && (Date.now() - u.blockedSince > 1800000)) {
+    u.blocked = false;
+    u.blockedSince = null;
+    u.state = "main";
+    console.log(`🔓 İstifadəçi ${id} blokdan avtomatik açıldı`);
+  }
+  
   u.lastActive = Date.now();
   u.messageCount++;
   return u;
@@ -134,7 +153,7 @@ function addHistory(userId, role, content) {
 }
 
 // ════════════════════════════════════════════════════
-// GROQ AI
+// GROQ AI - TƏKMİLLƏŞDİRİLMİŞ PROMPT
 // ════════════════════════════════════════════════════
 const SYSTEM_PROMPT = `Sən 01 Code Studio şirkətinin rəsmi Instagram köməkçisisən.
 
@@ -145,59 +164,32 @@ const SYSTEM_PROMPT = `Sən 01 Code Studio şirkətinin rəsmi Instagram kömək
 - İş saatları: 7/24
 
 XİDMƏTLƏR VƏ QİYMƏTLƏR:
-1. Vebsayt hazırlanması:
-   - Vizit / Landing page: 520–1300 AZN (7–14 gün)
-   - Korporativ sayt: 1300–4400 AZN (30–60 gün)
-   - E-ticarət saytı: 2600–13000 AZN (60–120 gün)
-   - Daxildir: responsiv dizayn, SEO, admin panel, ödəniş sistemi, 1 ay pulsuz texniki dəstək
+1. Vebsayt: Vizit 520-1300 AZN, Korporativ 1300-4400 AZN, E-ticarət 2600-13000 AZN
+2. Mobil tətbiq: Sadə 2600-6000 AZN, Orta 6000-15500 AZN, Mürəkkəb 13000-43000 AZN
+3. ERP/CRM: 7000-43000 AZN (layihəyə görə)
+4. SEO: 450-1800 AZN/ay
+5. Texniki dəstək: 250-1500 AZN/saat (və ya abunə)
 
-2. Mobil tətbiq (iOS və Android):
-   - Sadə tətbiq: 2600–6000 AZN (30–45 gün)
-   - Orta səviyyəli: 6000–15500 AZN (60–90 gün)
-   - Mürəkkəb tətbiq: 13000–43000 AZN (90–180 gün)
-   - Daxildir: push bildiriş, ödəniş, GPS, chat, admin panel
+NİTQ ETİKETİ VƏ ÜSLUB:
+- Salamlaşma: "Salam", "Hörmətli", "Siz" ilə müraciət
+- Sağollaşma: "Sağ olun", "Sağ ol", "Xoş oldu" (səhvən "xoş gəldi" demə)
+- Təşəkkürə cavab: "Buyurun", "Xahiş edirəm", "Bizim üçün şərəfdir"
+- "Bizimlə" – birgəlik halı (məs: "bizimlə əlaqə saxlayın")
+- "Bizə" – yönlük halı (məs: "bizə yazın")
+- Cümlələrdə halları düzgün işlət
 
-3. ERP / CRM / Avtomatlaşdırma:
-   - Qiymət: 7000–43000 AZN (layihəyə görə)
-   - Müddət: 3–8 həftə
-   - Modullar: müştəri, anbar, satış, maliyyə, hesabat
-
-4. SEO optimizasiyası:
-   - Qiymət: 450–1800 AZN/ay
-   - Nəticə: 1–3 ay ərzində görünən irəliləyiş
-
-5. Texniki dəstək:
-   - Qiymət: 250–1500 AZN/saat (və ya aylıq abunə)
-   - Cavab müddəti: 1–2 saat (kritik xətalar)
-
-DAVRANISH QAYDALARı:
-
-DİL VƏ ÜSLUB:
-- Həmişə təbii, mehriban və peşəkar Azərbaycan dilində danış
-- Qrammatik səhv buraxma — cümlələr düzgün qurulsun
-- Rəsmi deyil, adi söhbət üslubunda danış — sanki tanış biri kimi
-- Müştərini "siz" ilə müraciət et
-- Hər cavabda 1–2 emoji istifadə et, çox işlətmə
-
-CAVAB VERMƏ:
-- Müştərinin sualına tam uyğun cavab ver
+DAVRANIŞ:
+- Təbii, peşəkar, mehriban danış
+- Hər cavabda 1-2 emoji istifadə et
 - Qısa suala qısa, ətraflı suala ətraflı cavab ver
 - Eyni fikri təkrar etmə
-- Heç vaxt uydurma məlumat vermə
-- Bilmirsənsə, WhatsApp-a yönləndir
+- Uydurma məlumat vermə
 
-QIYMƏT SUALLARINDA:
-- Dəqiq qiymətləri söylə (yuxarıdakı cədvələ uyğun)
-- Həmişə əlavə et: "Dəqiq qiymət layihənin tələbinə görə müəyyən edilir"
-- Təklif formu üçün yönləndir: https://01cs.site/teklif-al.html
+ƏLAQƏSİZ SUALLAR: şirkətlə əlaqəsi olmayan mövzularda:
+"Bu mövzu mənim ixtisasım xaricindədir. Sizə 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
 
-ƏLAQƏSİZ SUALLAR:
-- Futbol, hava, siyasət, tarix, şəxsi suallar kimi şirkətlə əlaqəsiz mövzularda bu cavabı ver:
-  "Bu mövzu mənim ixtisasım xaricindədir. Sizə 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
-
-CANLI DƏSTƏK:
-- "operator", "canlı dəstək", "insan" kimi sözlər yazıldıqda bu cavabı ver:
-  "Sizi dərhal canlı dəstəyə yönləndiririk. Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq 🙏"`;
+CANLI DƏSTƏK: istifadəçi "operator", "canlı dəstək", "insan" və s. yazdıqda cavab:
+"Sizi dərhal canlı dəstəyə yönləndiririk. Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq 🙏"`;
 
 async function askAI(userId, message, lastService) {
   if (!groq) return null;
@@ -217,7 +209,6 @@ async function askAI(userId, message, lastService) {
 
   const systemWithContext = `${SYSTEM_PROMPT}${langNote ? "\n\n" + langNote : ""}${serviceNote ? "\n\n" + serviceNote : ""}`;
 
-  // Söhbət tarixçəsi ilə birlikdə göndər
   const messages = [
     { role: "system", content: systemWithContext },
     ...u.history.slice(-6),
@@ -233,9 +224,11 @@ async function askAI(userId, message, lastService) {
     });
 
     const reply = res.choices[0]?.message?.content?.trim();
-    if (!reply) return null;
+    if (!reply) {
+      console.log("Groq boş cavab qaytardı");
+      return null;
+    }
 
-    // Tarixçəyə əlavə et
     addHistory(userId, "user", message);
     addHistory(userId, "assistant", reply);
 
@@ -247,7 +240,28 @@ async function askAI(userId, message, lastService) {
 }
 
 // ════════════════════════════════════════════════════
-// MENYU MƏTNLƏRİ
+// CANLI DƏSTƏK AÇAR SÖZLƏRİ (GENİŞLƏNDİRİLMİŞ)
+// ════════════════════════════════════════════════════
+const LIVE_WORDS = [
+  "canlı dəstək", "canli destek", "canlı destek",
+  "operator", "operatör",
+  "insan dəstək", "insan destek",
+  "müştəri xidmətləri", "musteri xidmetleri",
+  "canlı yardım", "canli yardim",
+  "canlı dəstəyə yönləndir", "canlı dəstəyə yonlendir",
+  "canli destege yonlendir",
+  "живая поддержка", "оператор", "живой чат",
+  "live support", "live chat", "human support", "talk to human",
+  "dəstək", "destek", "yardım", "yardim", "kömək", "komek"
+];
+
+function isLiveRequest(text) {
+  const t = text.toLowerCase();
+  return LIVE_WORDS.some(w => t.includes(w));
+}
+
+// ════════════════════════════════════════════════════
+// MENYU MƏTNLƏRİ (az, ru, en)
 // ════════════════════════════════════════════════════
 const MENU = {
   az: {
@@ -303,56 +317,33 @@ Xidmət növləri:
 
 Hər layihəyə daxildir:
 • 100% mobil uyğun dizayn
-• SEO hazırlığı (Google-da görünmək üçün)
-• Admin panel — saytı özünüz idarə edin
+• SEO hazırlığı
+• Admin panel
 • Ödəniş sistemi inteqrasiyası
 • 1 ay pulsuz texniki dəstək
 
-Dəqiq qiymət layihənin tələbinə görə müəyyən edilir.
 👉 https://01cs.site/teklif-al.html
-
-Sual varsa yazın, cavablayacağam 😊
 0️⃣ Xidmətlərə qayıt`,
 
     mobile: `📱 Mobil Tətbiq Hazırlanması
 
 Səviyyələr:
-• Sadə tətbiq — 2600–6000 AZN (30–45 gün)
-• Orta səviyyəli — 6000–15500 AZN (60–90 gün)
-• Mürəkkəb tətbiq — 13000–43000 AZN (90–180 gün)
+• Sadə — 2600–6000 AZN (30–45 gün)
+• Orta — 6000–15500 AZN (60–90 gün)
+• Mürəkkəb — 13000–43000 AZN (90–180 gün)
 
-Hər layihəyə daxildir:
-• iOS və Android — eyni vaxtda
-• Push bildiriş sistemi
-• Ödəniş inteqrasiyası
-• GPS, chat funksiyaları
-• Admin panel
+Daxildir: iOS & Android, push, ödəniş, GPS, chat, admin panel.
 
 👉 https://01cs.site/teklif-al.html
-
-Sual varsa yazın 😊
 0️⃣ Xidmətlərə qayıt`,
 
     erp: `⚙️ ERP / CRM / Avtomatlaşdırma
 
 Qiymət: 7000–43000 AZN
 Müddət: 3–8 həftə
-
-Modullar:
-• Müştəri idarəsi (CRM)
-• Anbar və satış
-• İşçi və əmək haqqı
-• Maliyyə və mühasibat
-• Analitik hesabatlar
-
-Xüsusiyyətlər:
-• İstənilən API ilə inteqrasiya
-• Çoxistifadəçili sistem
-• Bulud və ya öz serverinizdə
+Modullar: müştəri, anbar, satış, maliyyə, hesabat.
 
 👉 https://01cs.site/teklif-al.html
-
-Sual varsa yazın 😊
 0️⃣ Xidmətlərə qayıt`,
 
     seo: `🔍 SEO Optimizasiyası
@@ -360,33 +351,19 @@ Sual varsa yazın 😊
 Qiymət: 450–1800 AZN/ay
 Nəticə: 1–3 ay ərzində
 
-Daxildir:
-• Açar söz araşdırması
-• Texniki SEO audit
-• Daxili optimizasiya
-• Keyfiyyətli link building
-• Aylıq hesabat
+Daxildir: açar söz, audit, optimizasiya, linklər, hesabat.
 
 👉 https://01cs.site/teklif-al.html
-
-Sual varsa yazın 😊
 0️⃣ Xidmətlərə qayıt`,
 
     support: `🛠️ Texniki Dəstək
 
-Qiymət: 250–1500 AZN/saat (və ya aylıq abunə)
-Cavab müddəti: 1–2 saat (kritik)
+Qiymət: 250–1500 AZN/saat (və ya abunə)
+Cavab müddəti: 1–2 saat
 
-Daxildir:
-• Təhlükəsizlik yeniləmələri
-• Sürət optimizasiyası
-• Xəta düzəlişləri
-• Yeni funksiya əlavəsi
-• 7/24 dəstək
+Daxildir: təhlükəsizlik, sürət, xəta düzəlişi, yeni funksiyalar, 7/24.
 
 👉 https://01cs.site/teklif-al.html
-
-Sual varsa yazın 😊
 0️⃣ Xidmətlərə qayıt`,
 
     live: `Sizi dərhal canlı dəstəyə yönləndiririk 🙏
@@ -406,7 +383,7 @@ Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq.
 2️⃣ О нас
 3️⃣ Контакты
 
-Вы также можете написать свой вопрос напрямую.
+Также можете написать вопрос напрямую.
 Язык: az / ru / en`,
 
     services: `Какая услуга вас интересует? 😊
@@ -439,11 +416,11 @@ Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq.
 
     website: `💻 Разработка веб-сайтов
 
-• Визитка / Landing: 520–1300 AZN (7–14 дней)
+• Визитка: 520–1300 AZN (7–14 дней)
 • Корпоративный: 1300–4400 AZN (30–60 дней)
 • Интернет-магазин: 2600–13000 AZN (60–120 дней)
 
-Включено: адаптивный дизайн, SEO, админ-панель, оплата, 1 месяц поддержки.
+Включено: адаптив, SEO, админка, оплата, 1 месяц поддержки.
 
 👉 https://01cs.site/teklif-al.html
 0️⃣ Назад к услугам`,
@@ -454,7 +431,7 @@ Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq.
 • Среднее: 6000–15500 AZN (60–90 дней)
 • Сложное: 13000–43000 AZN (90–180 дней)
 
-iOS и Android, push, оплата, GPS, чат, админка.
+iOS & Android, push, оплата, GPS, чат, админка.
 
 👉 https://01cs.site/teklif-al.html
 0️⃣ Назад к услугам`,
@@ -531,11 +508,11 @@ We are a professional IT company in Azerbaijan. We develop websites, mobile apps
 
     website: `💻 Website Development
 
-• Landing page: 520–1300 AZN (7–14 days)
+• Landing: 520–1300 AZN (7–14 days)
 • Corporate: 1300–4400 AZN (30–60 days)
 • E-commerce: 2600–13000 AZN (60–120 days)
 
-Includes: responsive design, SEO, admin panel, payments, 1 month support.
+Includes: responsive, SEO, admin, payments, 1 month support.
 
 👉 https://01cs.site/teklif-al.html
 0️⃣ Back to Services`,
@@ -583,24 +560,6 @@ Our specialist will contact you shortly.
 };
 
 // ════════════════════════════════════════════════════
-// CANLI DƏSTƏK AÇAR SÖZLƏRİ
-// ════════════════════════════════════════════════════
-const LIVE_WORDS = [
-  "canlı dəstək", "canli destek", "canlı destek",
-  "operator", "operatör",
-  "insan dəstək", "insan destek",
-  "müştəri xidmətləri", "musteri xidmetleri",
-  "canlı yardım", "canli yardim",
-  "живая поддержка", "оператор", "живой чат",
-  "live support", "live chat", "human support", "talk to human"
-];
-
-function isLiveRequest(text) {
-  const t = text.toLowerCase();
-  return LIVE_WORDS.some(w => t.includes(w));
-}
-
-// ════════════════════════════════════════════════════
 // ƏSAS CAVAB MƏNTİQİ
 // ════════════════════════════════════════════════════
 async function getReply(userId, text, username = "") {
@@ -608,7 +567,10 @@ async function getReply(userId, text, username = "") {
   const lower = t.toLowerCase();
   const u = getUser(userId);
 
-  if (u.blocked) return null;
+  if (u.blocked) {
+    console.log(`🚫 İstifadəçi ${userId} bloklanıb, cavab verilmir`);
+    return null;
+  }
 
   // Dil dəyişmə
   if (lower === "az") { setState(userId, { language: "az", state: "main", history: [] }); return MENU.az.main; }
@@ -620,9 +582,10 @@ async function getReply(userId, text, username = "") {
 
   // Canlı dəstək
   if (isLiveRequest(t)) {
-    await notifyTelegram(userId, t, username);
-    setState(userId, { blocked: true });
     logEvent(userId, "live_support", t);
+    await notifyTelegram(userId, t, username);
+    setState(userId, { blocked: true, blockedSince: Date.now() });
+    console.log(`🔒 İstifadəçi ${userId} canlı dəstək üçün bloklandı`);
     return m.live;
   }
 
@@ -639,9 +602,8 @@ async function getReply(userId, text, username = "") {
     if (lower === "2") { setState(userId, { state: "about" }); return m.about; }
     if (lower === "3") { setState(userId, { state: "contact" }); return m.contact; }
 
-    // Sərbəst sual — AI
     const ai = await askAI(userId, t, null);
-    return ai || m.main;
+    return ai || "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
   }
 
   // ── XİDMƏTLƏR MENYUSU ─────────────────────────────
@@ -656,13 +618,13 @@ async function getReply(userId, text, username = "") {
     return ai || m.services;
   }
 
-  // ── XİDMƏT DETALİ — AI ilə söhbət ────────────────
+  // ── XİDMƏT DETALİ ──────────────────────────────────
   if (u.state === "service_detail") {
     const ai = await askAI(userId, t, u.lastService);
-    return ai || m.services;
+    return ai || "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
   }
 
-  // ── HAQQIMIZDA / ƏLAQƏ — AI ilə söhbət ───────────
+  // ── HAQQIMIZDA / ƏLAQƏ ────────────────────────────
   if (u.state === "about" || u.state === "contact") {
     const ai = await askAI(userId, t, null);
     return ai || m.main;
@@ -698,7 +660,6 @@ async function sendDM(commentId, message) {
     });
   } catch (e) {
     console.log("DM xətası:", e.response?.data?.error?.message || e.message);
-    // DM göndərilmədi — şərhdə xəbər ver
     try {
       await igRequest(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
         message: "Sizə DM göndərmək mümkün olmadı. Bizimlə əlaqə saxlayın: +994 10 717 20 34"
@@ -788,6 +749,9 @@ app.post("/webhook", async (req, res) => {
           if (reply) {
             await replyDM(senderId, reply);
             console.log("✅ Cavablandı");
+          } else {
+            console.log("⚠️ Cavab alınmadı, fallback göndərilir");
+            await replyDM(senderId, "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊");
           }
         } finally {
           unlock(msgId);
@@ -933,7 +897,7 @@ app.get("/admin", adminAuth, (req, res) => {
 
 app.get("/admin/unblock/:id", adminAuth, (req, res) => {
   const u = users.get(req.params.id);
-  if (u) { u.blocked = false; u.state = "main"; }
+  if (u) { u.blocked = false; u.blockedSince = null; u.state = "main"; }
   res.redirect("/admin");
 });
 
@@ -944,6 +908,7 @@ app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
 
 app.listen(CONFIG.PORT, () => {
   console.log(`🚀 01CS Bot port ${CONFIG.PORT}-də başladı`);
-  console.log(`📊 Admin: /admin (şifrə: ADMIN_PASSWORD env dəyişəni)`);
+  console.log(`📊 Admin: /admin (şifrə: ${CONFIG.ADMIN_PASSWORD})`);
   console.log(`🤖 Groq AI: ${groq ? "aktiv" : "deaktiv"}`);
+  console.log(`📨 Telegram bildirişi: ${CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID ? "aktiv" : "deaktiv"}`);
 });
