@@ -18,7 +18,7 @@ const CONFIG = {
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "01csigbot_secret",
   IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
   GROQ_API_KEY: process.env.GROQ_API_KEY,
-  GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.1-8b-instant", // İnstant model
+  GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
@@ -52,10 +52,15 @@ async function sendTelegramNotification(userId, userMessage, username = "istifad
   } catch (e) { console.log("Telegram xətası:", e.message); }
 }
 
+// ✅ Təkmilləşdirilmiş processedIds - race condition qarşısı
 const processedIds = new Map();
 function isProcessed(id) {
   const now = Date.now();
-  if (processedIds.has(id) && now - processedIds.get(id) < 600000) return true;
+  if (processedIds.has(id)) {
+    const ts = processedIds.get(id);
+    if (now - ts < 600000) return true; // 10 dəqiqə
+    else processedIds.delete(id);
+  }
   processedIds.set(id, now);
   return false;
 }
@@ -138,30 +143,34 @@ function getAdditionalDetail(service, lang, level) {
   return "";
 }
 
-// SKRAPİNQ LƏĞV EDİLDİ - default məlumat
-const DEFAULT_COMPANY_INFO = "01 Code Studio Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkətidir. Şirkət 2023-cü ildə yaradılıb və hazırda 10-dan çox işçisi var.";
+const DEFAULT_COMPANY_INFO = "01 Code Studio - Azərbaycanda vebsayt, mobil tətbiq, ERP, SEO və texniki dəstək xidmətləri göstərən proqram şirkəti.";
 
-// Groq AI sorğusu (llama-3.1-8b-instant)
 async function askGroq(prompt, contextService = null, language = "az") {
   if (!groqClient) {
     return "Üzr istəyirik, AI xidməti işləmir. Zəhmət olmasa menyudan istifadə edin. 😊";
   }
 
-  const companyInfo = DEFAULT_COMPANY_INFO;
+  const langInstruction = language === "az" ? "Azərbaycan dilində" : 
+                          language === "ru" ? "Rus dilində" : 
+                          "İngilis dilində";
 
-  const systemPrompt = `Sən 01 Code Studio-nun dostyana köməkçisisən. 😊
+  const systemPrompt = `Sən 01 Code Studio-nun rəsmi köməkçisisən. Şirkət: ${DEFAULT_COMPANY_INFO}
 
-Şirkət: ${companyInfo}
+CAVAB QAYDALARI (ÇOX VACİB):
+1. Cavabların TAM BAŞA DÜŞÜLƏN, SƏHVSİZ və MƏNTİQLİ olsun.
+2. HEÇ BİR SÖZÜ TƏKRAR ETMƏ. Eyni fikri təkrar ifadələrlə yazma.
+3. "yəni", "belə ki" kimi lazımsız bağlayıcılardan istifadə etmə.
+4. Cavabların təbii, insan danışığı kimi olsun. Rəsmi yox, dostyana ton.
+5. Hər cavabda ən azı 1 emoji istifadə et.
+6. Cavab uzunluğu sualın mürəkkəbliyinə uyğun olsun - qısa suala qısa, ətraflı suala ətraflı cavab ver.
+7. Əgər sual şirkətin fəaliyyəti ilə əlaqəli DEYİLSE (hava, futbol, siyasət, şəxsi suallar), BİRBAŞA cavabını yaz:
+   "Bu sual mənim ixtisasım xaricindədir. Mən yalnız 01 Code Studio-nun xidmətləri haqqında məlumat verə bilərəm. 😊"
+8. HEÇ VAXT EYNİ CÜMLƏNİ TƏKRAR ETMƏ.
 
-Qaydalar:
-- Cavabında ən azı 1 emoji istifadə et.
-- Maksimum 3-4 cümlə, qısa və faydalı.
-- İstifadəçi ilə söhbət et.
-- Əlaqəsiz suallarda: "Bu sual mənim ixtisasım xaricindədir. Zəhmət olmasa, 01 Code Studio haqqında sual yazın. 😊"
+${contextService ? `İstifadəçi hazırda "${contextService}" xidmətinə baxır.` : ""}
+Cavab dili: ${langInstruction}
 
-Dil: ${language === "az" ? "Azərbaycanca" : language === "ru" ? "Rusca" : "İngiliscə"}
-${contextService ? `İstifadəçi ${contextService} xidmətinə baxır.` : ""}
-İstifadəçi: ${prompt}`;
+İstifadəçinin sualı: ${prompt}`;
 
   try {
     const response = await groqClient.chat.completions.create({
@@ -170,15 +179,20 @@ ${contextService ? `İstifadəçi ${contextService} xidmətinə baxır.` : ""}
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt }
       ],
-      temperature: 0.7,
-      max_tokens: 250,
+      temperature: 0.3,
+      max_tokens: 600,
     });
     let reply = response.choices[0]?.message?.content?.trim() || "Cavab alınmadı.";
-    if (reply.length > 500) reply = reply.substring(0, 500) + "...";
+    // Təkrarları sil
+    const sentences = reply.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    const uniqueSentences = [...new Set(sentences)];
+    if (uniqueSentences.length < sentences.length && uniqueSentences.length > 0) {
+      reply = uniqueSentences.join(". ") + ".";
+    }
     return reply;
   } catch (e) {
     console.error("Groq xətası:", e.message);
-    return "Üzr istəyirik, texniki problem. Sualınızı bir az sonra təkrarlayın və ya https://01cs.site 😊";
+    return "Üzr istəyirik, texniki problem yarandı. Sualınızı bir az sonra təkrarlayın. 😊";
   }
 }
 
@@ -401,11 +415,47 @@ app.post("/webhook", async (req, res) => {
         const commentId = comment.id;
         const commentText = comment.text || "";
         const fromUser = comment.from?.username || "istifadəçi";
-        if (isProcessed(commentId)) continue;
+        
+        // ✅ Birinci yoxlama - əgər işlənibsə keç
+        if (isProcessed(commentId)) {
+          console.log(`⏭️ Şərh artıq işlənib: ${commentId}`);
+          continue;
+        }
+        
         logAnalytics(fromUser, "comment", commentText);
-        await replyToComment(commentId, "Salam, şərhinizə cavab DM-də göndərildi 😊");
-        await sendDM(commentId, MENUS.az.main);
+        console.log(`📩 Şərh: @${fromUser} → "${commentText}"`);
+
+        // ✅ STANDART CAVAB - yalnız bir dəfə
+        try {
+          await replyToComment(commentId, "Şərhiniz DM-də cavablandırıldı ✔️");
+          console.log(`💬 Şərhə standart cavab yazıldı`);
+        } catch (e) {
+          console.log("⚠️ Şərh cavabı xətası:", e.response?.data?.error?.message || e.message);
+        }
+
+        // ✅ DM göndər (əvvəlki kimi)
+        try {
+          await sendDM(commentId, MENUS.az.main);
+          console.log(`✉️ DM göndərildi → @${fromUser}`);
+        } catch (e) {
+          console.log("⚠️ DM xətası:", e.response?.data?.error?.message || e.message);
+          try {
+            await replyToComment(
+              commentId,
+              "Sizə DM göndərmək mümkün deyil. Zəhmət olmasa bizi +994107172034 nömrəsindən əlaqələndirin."
+            );
+          } catch {}
+        }
+        
+        // ✅ Race condition qarşısı - ikinci yoxlama (100ms gözlə)
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (isProcessed(commentId)) {
+          console.log(`⏭️ Race condition qarşısı alındı: ${commentId}`);
+          continue;
+        }
       }
+
+      // DM emalı (əvvəlki kimi)
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
         const text = msg.message?.text;
@@ -419,7 +469,7 @@ app.post("/webhook", async (req, res) => {
         if (response) await replyToDM(senderId, response);
       }
     }
-  } catch (err) { console.error("Webhook xətası:", err.message); }
+  } catch (err) { console.error("❌ Webhook xətası:", err.message); }
 });
 
 function isAdmin(req, res, next) {
@@ -469,5 +519,5 @@ app.get("/admin/unblock/:userId", isAdmin, (req, res) => {
   if (userStates.has(userId)) setUserState(userId, { blocked: false });
   res.redirect("/admin/dashboard");
 });
-app.get("/", (req, res) => res.send("01CS Bot Groq (llama-3.1-8b-instant) ilə isləyir ✅"));
+app.get("/", (req, res) => res.send("01CS Bot Groq ilə isləyir (təkmil prompt) ✅"));
 app.listen(CONFIG.PORT, () => console.log(`🚀 Port ${CONFIG.PORT}`));
