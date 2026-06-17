@@ -14,6 +14,16 @@ app.use(session({
 }));
 
 // ════════════════════════════════════════════════════
+// SABİTLƏR
+// ════════════════════════════════════════════════════
+const TIMEOUT_30MIN = 30 * 60 * 1000;
+const TIMEOUT_10MIN = 10 * 60 * 1000;
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 dəqiqə
+const MAX_USERS_IN_MEMORY = 1000;
+const MAX_PROCESSED_IDS = 2000;
+const IG_API_VERSION = "v21.0";
+
+// ════════════════════════════════════════════════════
 // KONFİQURASİYA
 // ════════════════════════════════════════════════════
 const CONFIG = {
@@ -25,6 +35,24 @@ const CONFIG = {
   ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
   PORT:               process.env.PORT || 3000,
 };
+
+// Kritik environment variables validation
+function validateConfig() {
+  const required = ['IG_ACCESS_TOKEN', 'GROQ_API_KEY'];
+  const missing = required.filter(key => !CONFIG[key]);
+
+  if (missing.length > 0) {
+    console.error(`❌ KRİTİK XƏTA: Bu environment variables təyin edilməyib: ${missing.join(', ')}`);
+    console.error('Bot işləməyəcək. Zəhmət olmasa render.com-da bu dəyişənləri təyin edin.');
+    process.exit(1);
+  }
+
+  if (CONFIG.ADMIN_PASSWORD === "admin123") {
+    console.warn('⚠️ XƏBƏRDARLIQ: Default admin şifrəsi istifadə olunur! Təhlükəsizlik riski!');
+  }
+}
+
+validateConfig();
 
 // Groq başlat
 let groq = null;
@@ -38,7 +66,9 @@ if (CONFIG.GROQ_API_KEY) {
 // ════════════════════════════════════════════════════
 // ANALİTİKA
 // ════════════════════════════════════════════════════
-const ANALYTICS_FILE = "/tmp/analytics.json";
+// Render.com persistent disk: /opt/render/project/data/analytics.json
+// Default: /tmp/analytics.json (restart-da silinir)
+const ANALYTICS_FILE = process.env.ANALYTICS_PATH || "/tmp/analytics.json";
 
 function logEvent(userId, action, details = "") {
   try {
@@ -54,7 +84,9 @@ function logEvent(userId, action, details = "") {
     });
     if (data.length > 2000) data = data.slice(-1500);
     fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(data));
-  } catch (e) {}
+  } catch (e) {
+    console.error("❌ Analytics yazma xətası:", e.message);
+  }
 }
 
 // ════════════════════════════════════════════════════
@@ -75,7 +107,7 @@ async function notifyTelegram(userId, message, username = "") {
     );
     console.log("✅ Telegram bildirişi göndərildi");
   } catch (e) {
-    console.log("❌ Telegram xətası:", e.message);
+    console.error("❌ Telegram xətası:", e.response?.data || e.message);
   }
 }
 
@@ -87,9 +119,19 @@ const processingLocks = new Set();
 
 function isProcessed(id) {
   const now = Date.now();
+  // Cleanup köhnə qeydləri
   for (const [k, v] of processedIds.entries()) {
-    if (now - v > 600000) processedIds.delete(k);
+    if (now - v > TIMEOUT_10MIN) processedIds.delete(k);
   }
+
+  // Limit kontrolu - yaddaş sızmasının qarşısını al
+  if (processedIds.size > MAX_PROCESSED_IDS) {
+    const sorted = Array.from(processedIds.entries()).sort((a, b) => a[1] - b[1]);
+    const toDelete = sorted.slice(0, Math.floor(MAX_PROCESSED_IDS / 2));
+    toDelete.forEach(([k]) => processedIds.delete(k));
+    console.log(`🧹 processedIds cleanup: ${toDelete.length} köhnə qeyd silindi`);
+  }
+
   if (processedIds.has(id)) return true;
   processedIds.set(id, now);
   return false;
@@ -99,6 +141,31 @@ function isLocked(id) { return processingLocks.has(id); }
 function lock(id) { processingLocks.add(id); }
 function unlock(id) { processingLocks.delete(id); }
 
+// Periodic cleanup - hər 5 dəqiqə
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+
+  // ProcessedIds cleanup
+  for (const [k, v] of processedIds.entries()) {
+    if (now - v > TIMEOUT_10MIN) {
+      processedIds.delete(k);
+      cleaned++;
+    }
+  }
+
+  // ProcessingLocks - 5 dəqiqədən çox lock-da qalanları təmizlə (stuck locks)
+  // Bu normal halda olmamalıdır, amma əmin olmaq üçün
+  if (processingLocks.size > 100) {
+    console.warn(`⚠️ ProcessingLocks çox böyükdür: ${processingLocks.size}, təmizlənir`);
+    processingLocks.clear();
+  }
+
+  if (cleaned > 0) {
+    console.log(`🧹 Periodic cleanup: ${cleaned} köhnə processedId silindi`);
+  }
+}, CLEANUP_INTERVAL);
+
 // ════════════════════════════════════════════════════
 // İSTİFADƏÇİ VƏZİYYƏTLƏRİ
 // ════════════════════════════════════════════════════
@@ -106,6 +173,12 @@ const users = new Map();
 
 function getUser(userId) {
   const id = String(userId);
+
+  // Limit kontrolu - çox istifadəçi yaddaşda qalmasın
+  if (!users.has(id) && users.size >= MAX_USERS_IN_MEMORY) {
+    cleanupInactiveUsers();
+  }
+
   if (!users.has(id)) {
     users.set(id, {
       state: "main",
@@ -119,26 +192,44 @@ function getUser(userId) {
     });
   }
   const u = users.get(id);
-  
+
   // 30 dəqiqə sessiya timeout – blocked flag-ı da sıfırla
-  if (Date.now() - u.lastActive > 1800000) {
+  if (Date.now() - u.lastActive > TIMEOUT_30MIN) {
     u.state = "main";
     u.history = [];
     u.blocked = false;
     u.blockedSince = null;
   }
-  
+
   // Bloklama müddəti 30 dəqiqədirsə, avtomatik aç
-  if (u.blocked && u.blockedSince && (Date.now() - u.blockedSince > 1800000)) {
+  if (u.blocked && u.blockedSince && (Date.now() - u.blockedSince > TIMEOUT_30MIN)) {
     u.blocked = false;
     u.blockedSince = null;
     u.state = "main";
     console.log(`🔓 İstifadəçi ${id} blokdan avtomatik açıldı`);
   }
-  
+
   u.lastActive = Date.now();
   u.messageCount++;
   return u;
+}
+
+// Qeyri-aktiv istifadəçiləri təmizlə
+function cleanupInactiveUsers() {
+  const now = Date.now();
+  const inactiveThreshold = 2 * TIMEOUT_30MIN; // 1 saat
+  let cleaned = 0;
+
+  for (const [id, user] of users.entries()) {
+    if (now - user.lastActive > inactiveThreshold && !user.blocked) {
+      users.delete(id);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(`🧹 Users cleanup: ${cleaned} qeyri-aktiv istifadəçi silindi`);
+  }
 }
 
 function setState(userId, updates) {
@@ -596,6 +687,13 @@ async function getReply(userId, text, username = "") {
     return m.main;
   }
 
+  // Fallback mesajları dillərə görə
+  const fallbackMessages = {
+    az: "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊",
+    ru: "Не понял, можете написать подробнее? 😊",
+    en: "I didn't understand, could you clarify? 😊"
+  };
+
   // ── ANA MENYU ──────────────────────────────────────
   if (u.state === "main") {
     if (lower === "1") { setState(userId, { state: "services" }); return m.services; }
@@ -603,7 +701,7 @@ async function getReply(userId, text, username = "") {
     if (lower === "3") { setState(userId, { state: "contact" }); return m.contact; }
 
     const ai = await askAI(userId, t, null);
-    return ai || "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
+    return ai || fallbackMessages[lang];
   }
 
   // ── XİDMƏTLƏR MENYUSU ─────────────────────────────
@@ -621,7 +719,7 @@ async function getReply(userId, text, username = "") {
   // ── XİDMƏT DETALİ ──────────────────────────────────
   if (u.state === "service_detail") {
     const ai = await askAI(userId, t, u.lastService);
-    return ai || "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊";
+    return ai || fallbackMessages[lang];
   }
 
   // ── HAQQIMIZDA / ƏLAQƏ ────────────────────────────
@@ -646,36 +744,38 @@ async function igRequest(url, data) {
 
 async function commentReply(commentId, message) {
   try {
-    await igRequest(`https://graph.instagram.com/v21.0/${commentId}/replies`, { message });
+    await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/${commentId}/replies`, { message });
   } catch (e) {
-    console.log("Şərh cavabı xətası:", e.response?.data?.error?.message || e.message);
+    console.error("❌ Şərh cavabı xətası:", e.response?.data?.error?.message || e.message);
   }
 }
 
 async function sendDM(commentId, message) {
   try {
-    await igRequest("https://graph.instagram.com/v21.0/me/messages", {
+    await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/me/messages`, {
       recipient: { comment_id: commentId },
       message: { text: message }
     });
   } catch (e) {
-    console.log("DM xətası:", e.response?.data?.error?.message || e.message);
+    console.error("❌ DM xətası:", e.response?.data?.error?.message || e.message);
     try {
-      await igRequest(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
+      await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/${commentId}/replies`, {
         message: "Sizə DM göndərmək mümkün olmadı. Bizimlə əlaqə saxlayın: +994 10 717 20 34"
       });
-    } catch {}
+    } catch (fallbackErr) {
+      console.error("❌ DM fallback xətası:", fallbackErr.message);
+    }
   }
 }
 
 async function replyDM(recipientId, message) {
   try {
-    await igRequest("https://graph.instagram.com/v21.0/me/messages", {
+    await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/me/messages`, {
       recipient: { id: recipientId },
       message: { text: message }
     });
   } catch (e) {
-    console.log("DM cavabı xətası:", e.response?.data?.error?.message || e.message);
+    console.error("❌ DM cavabı xətası:", e.response?.data?.error?.message || e.message);
   }
 }
 
@@ -751,7 +851,8 @@ app.post("/webhook", async (req, res) => {
             console.log("✅ Cavablandı");
           } else {
             console.log("⚠️ Cavab alınmadı, fallback göndərilir");
-            await replyDM(senderId, "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊");
+            const fallbackMsg = fallbackMessages[getUser(senderId).language] || fallbackMessages.az;
+            await replyDM(senderId, fallbackMsg);
           }
         } finally {
           unlock(msgId);
@@ -905,6 +1006,26 @@ app.get("/admin/unblock/:id", adminAuth, (req, res) => {
 // SERVER
 // ════════════════════════════════════════════════════
 app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
+
+// Health check endpoint - render.com üçün
+app.get("/health", (req, res) => {
+  const health = {
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    services: {
+      groq: groq ? "active" : "inactive",
+      telegram: (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) ? "active" : "inactive",
+      instagram: CONFIG.IG_ACCESS_TOKEN ? "active" : "inactive"
+    },
+    stats: {
+      activeUsers: users.size,
+      processedIds: processedIds.size,
+      processingLocks: processingLocks.size
+    }
+  };
+  res.status(200).json(health);
+});
 
 app.listen(CONFIG.PORT, () => {
   console.log(`🚀 01CS Bot port ${CONFIG.PORT}-də başladı`);
