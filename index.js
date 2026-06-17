@@ -483,26 +483,34 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Dil üzrə səs seçimi
+    // Türk dilinə yaxın səslər (Azərbaycan üçün ən yaxşı seçim)
     const voices = {
-      az: "pNInz6obpgDQGcFmaJgB", // Adam (multilingual)
-      ru: "pNInz6obpgDQGcFmaJgB", // Adam (multilingual)
-      en: "pNInz6obpgDQGcFmaJgB"  // Adam (multilingual)
+      az: "EXAVITQu4vr4xnSDxMaL",  // Sarah - yumşaq, təbii (Türk/Azəri üçün yaxşı)
+      ru: "IKne3meq5aSn9XLyUdCD",  // Sokrates - Rusca üçün yaxşı
+      en: "pNInz6obpgDQGcFmaJgB"     // Adam - İngiliscə
     };
 
     const voiceId = voices[language] || voices.az;
 
-    console.log(`🎤 ElevenLabs TTS başladı: "${text.slice(0, 50)}..." (${language})`);
+    // Mətni təmizlə və təbii pauzalar əlavə et
+    const processedText = text
+      .replace(/(\!|\?)/g, '$1... ')  // Nida/sual işarəsindən sonra pauza
+      .replace(/(\.)/g, '$1 ')         // Nöqtədən sonra pauza
+      .replace(/\.\.\./g, '... ');     // Üç nöqtə
 
-    // ElevenLabs API çağırışı
+    console.log(`🎤 ElevenLabs TTS başladı: "${processedText.slice(0, 50)}..." (${language})`);
+
+    // ElevenLabs API çağırışı - Turbo model (daha təbii)
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
-        text: text,
-        model_id: "eleven_multilingual_v2",
+        text: processedText,
+        model_id: "eleven_turbo_v2_5",  // Turbo model - daha sürətli və təbii
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75
+          stability: 0.65,           // Daha stabil tələffüz
+          similarity_boost: 0.6,     // Daha təbii axıcılıq
+          style: 0.3,                // Bir az emosiya
+          use_speaker_boost: true    // Səs keyfiyyətini artırır
         }
       },
       {
