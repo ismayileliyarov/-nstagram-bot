@@ -344,7 +344,20 @@ KONTEKSTƏ DİQQƏT:
 "Bu mənim ixtisasım xaricindədir. 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
 
 CANLI DƏSTƏK TƏLƏBİ:
-"Sizi canlı dəstəyə yönləndirirəm. Mütəxəssisimiz tezliklə əlaqə saxlayacaq 🙏"`;
+"Sizi canlı dəstəyə yönləndirirəm. Mütəxəssisimiz tezliklə əlaqə saxlayacaq 🙏"
+
+SƏSLİ CAVAB QAYDALARI (ÇOX VACİB!):
+- Səsli mesajlara cavab verərkən YAZI DİLİNDƏN QAÇ, DANISIŞ DİLİNDƏ YAZ
+- Qısa, sadə cümlələr işlət (maksimum 15-20 söz)
+- Emoji YAZMA - səsli mesajda eşidilmir
+- URL, link YAZMA - səsli mesajda oxunmur
+- Siyahı, bullet point YAZMA - təbii danış
+- Ulduz (**), tire (-), nömrə (1. 2. 3.) YAZMA
+- Rəqəmləri sözlə yaz: "520" → "beş yüz iyirmi", "1300" → "min üç yüz"
+- "AZN" → "manat" yaz
+- Çox uzun cavab vermə - 3-4 cümlə kifayətdir
+- Təbii pauzalar əlavə et: "Bəli, ... bu mümkündür"
+- "Əlbəttə", "Məmnuniyyətlə" kimi təbii ifadələr işlət`;
 
 // Groq üçün model fallback siyahısı
 const GROQ_MODELS = [
@@ -476,6 +489,76 @@ async function transcribeAudio(audioUrl) {
 // ════════════════════════════════════════════════════
 // MƏTN-SƏS ÇEVİRMƏ (ELEVENLABS TTS)
 // ════════════════════════════════════════════════════
+
+// Azərbaycanca rəqəm → söz çevirməsi
+function numberToAzerbaijani(num) {
+  const ones = ['', 'bir', 'iki', 'üç', 'dörd', 'beş', 'altı', 'yeddi', 'səkkiz', 'doqquz'];
+  const tens = ['', 'on', 'iyirmi', 'otuz', 'qırx', 'əlli', 'altmış', 'yetmiş', 'səksən', 'doxsan'];
+
+  num = parseInt(num);
+  if (num === 0) return 'sıfır';
+  if (num < 0) return 'mənfi ' + numberToAzerbaijani(-num);
+
+  if (num >= 1000000) {
+    const million = Math.floor(num / 1000000);
+    const rest = num % 1000000;
+    return (million > 1 ? numberToAzerbaijani(million) + ' ' : '') + 'milyon' + (rest > 0 ? ' ' + numberToAzerbaijani(rest) : '');
+  }
+  if (num >= 1000) {
+    const thousand = Math.floor(num / 1000);
+    const rest = num % 1000;
+    return (thousand > 1 ? numberToAzerbaijani(thousand) + ' ' : '') + 'min' + (rest > 0 ? ' ' + numberToAzerbaijani(rest) : '');
+  }
+  if (num >= 100) {
+    const hundred = Math.floor(num / 100);
+    const rest = num % 100;
+    return (hundred > 1 ? numberToAzerbaijani(hundred) + ' ' : '') + 'yüz' + (rest > 0 ? ' ' + numberToAzerbaijani(rest) : '');
+  }
+  if (num >= 10) {
+    const ten = Math.floor(num / 10);
+    const one = num % 10;
+    return tens[ten] + (one > 0 ? ' ' + ones[one] : '');
+  }
+  return ones[num];
+}
+
+// TTS üçün mətni tam hazırla
+function prepareTextForTTS(text) {
+  let clean = text
+    // Bütün emoji-ləri sil
+    .replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2702}-\u{27B0}]|[\u{24C2}-\u{1F251}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{FE00}-\u{FE0F}]|[\u{1F7E0}-\u{1F7EB}]|[\u{200D}]|[\u{20E3}]|[\u{FE0F}]/gu, '')
+    // Markdown formatlarını sil
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // URL-ləri tamamilə sil
+    .replace(/https?:\/\/[^\s]+/g, '')
+    .replace(/www\.[^\s]+/g, '')
+    .replace(/wa\.me\/\S+/g, '')
+    // Rəqəm-AZN kombinasiyalarını sözlərə çevir
+    .replace(/(\d+)\s*[-–]\s*(\d+)\s*AZN/gi, (m, a, b) => numberToAzerbaijani(a) + ' - ' + numberToAzerbaijani(b) + ' manat')
+    .replace(/(\d+)\s*AZN/gi, (m, n) => numberToAzerbaijani(n) + ' manat')
+    // Sadə rəqəmləri sözlərə çevir (3+ rəqəmli)
+    .replace(/\b(\d{3,})\b/g, (m, n) => numberToAzerbaijani(n))
+    // Telefon nömrələrini sözlərə çevirməyə çalış
+    .replace(/\+994\s*(\d{2})\s*(\d{3})\s*(\d{2})\s*(\d{2})/g, 'doqquz doqquz dörd, $1, $2, $3, $4')
+    // "7/24" → "yeddi iyirmi dörd"
+    .replace(/7\/24/g, 'yeddi iyirmi dörd')
+    // Bullet point-ləri sil
+    .replace(/^[•\-\*]\s*/gm, '')
+    // Nömrəli siyahıları sil (1. 2. 3.)
+    .replace(/^\d+\.\s*/gm, '')
+    // Artıq durğu işarələrini təmizlə
+    .replace(/\.{2,}/g, '... ')
+    .replace(/\,{2,}/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return clean;
+}
+
 async function textToSpeechAudio(text, language = "az") {
   if (!CONFIG.ELEVENLABS_API_KEY) {
     console.error("❌ ElevenLabs API key mövcud deyil");
@@ -483,34 +566,36 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Türk dilinə yaxın səslər (Azərbaycan üçün ən yaxşı seçim)
+    // Ən təbii səslər — ElevenLabs Voice Library
+    // process.env.ELEVENLABS_VOICE_ID ilə öz səsinizi təyin edə bilərsiniz
     const voices = {
-      az: "EXAVITQu4vr4xnSDxMaL",  // Sarah - yumşaq, təbii (Türk/Azəri üçün yaxşı)
-      ru: "IKne3meq5aSn9XLyUdCD",  // Sokrates - Rusca üçün yaxşı
-      en: "pNInz6obpgDQGcFmaJgB"     // Adam - İngiliscə
+      az: "EXAVITQu4vr4xnSDxMaL",   // Bella - yumşaq, təbii qadın səsi (multilingual)
+      ru: "MF3mGyEYCl7XYWbV9V6O",   // Elli - təbii Rus qadın səsi
+      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - ən təbii İngilis səsi
     };
 
-    const voiceId = voices[language] || voices.az;
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || voices.az;
 
-    // Mətni təmizlə və təbii pauzalar əlavə et
-    const processedText = text
-      .replace(/(\!|\?)/g, '$1... ')  // Nida/sual işarəsindən sonra pauza
-      .replace(/(\.)/g, '$1 ')         // Nöqtədən sonra pauza
-      .replace(/\.\.\./g, '... ');     // Üç nöqtə
+    // Mətni TTS üçün hazırla
+    const processedText = prepareTextForTTS(text);
 
-    console.log(`🎤 ElevenLabs TTS başladı: "${processedText.slice(0, 50)}..." (${language})`);
+    if (!processedText || processedText.length < 2) {
+      console.log("⚠️ TTS üçün mətn boşdur");
+      return null;
+    }
 
-    // ElevenLabs API çağırışı - Turbo model (daha təbii)
+    console.log(`🎤 ElevenLabs TTS başladı: "${processedText.slice(0, 60)}..." (${language})`);
+
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         text: processedText,
-        model_id: "eleven_turbo_v2_5",  // Turbo model - daha sürətli və təbii
+        model_id: "eleven_multilingual_v2",
         voice_settings: {
-          stability: 0.65,           // Daha stabil tələffüz
-          similarity_boost: 0.6,     // Daha təbii axıcılıq
-          style: 0.3,                // Bir az emosiya
-          use_speaker_boost: true    // Səs keyfiyyətini artırır
+          stability: 0.35,            // Aşağı = daha təbii, insanabənzər dəyişiklik
+          similarity_boost: 0.85,     // Yüksək = orijinal səsə daha yaxın
+          style: 0.45,                // Orta = bir az emosiya, amma stabil
+          use_speaker_boost: true     // Səs keyfiyyətini artırır
         }
       },
       {
@@ -533,6 +618,13 @@ async function textToSpeechAudio(text, language = "az") {
     return null;
   }
 }
+
+// Fallback mesajları (global — webhook-da da istifadə olunur)
+const FALLBACK_MESSAGES = {
+  az: "Başa düşmədim, bir az daha aydın yaza bilərsiniz? 😊",
+  ru: "Не понял, можете написать подробнее? 😊",
+  en: "I didn't understand, could you clarify? 😊"
+};
 
 // ════════════════════════════════════════════════════
 // CANLI DƏSTƏK AÇAR SÖZLƏRİ (GENİŞLƏNDİRİLMİŞ)
@@ -1113,14 +1205,16 @@ app.post("/webhook", async (req, res) => {
               text = await transcribeAudio(audioUrl);
 
               if (!text) {
-                await replyDM(senderId, "Üzr istəyirəm, səsli mesajınızı başa düşə bilmədim 😔 Zəhmət olmasa yazılı olaraq göndərin.");
+                await replyDM(senderId, "Üzr istəyirəm, səsli mesajınızı başa düsə bilmədim. Zəhmət olmasa yazılı olaraq göndərin.");
                 console.log("❌ Səsli mesaj transcribe edilə bilmədi");
                 continue;
               }
 
               logEvent(senderId, "voice_message", text);
               console.log(`✅ Transcribe edildi: "${text.slice(0, 60)}"`);
-              // Transkripti göstərmirik - birbaşa cavab veririk
+
+              // Səsli mesaj üçün AI-ya xüsusi prompt əlavə et
+              addHistory(senderId, "system", "[SƏSLİ MESAJ CAVABI QAYDALARI: Qısa, danışıq dilində yaz. Emoji, URL, siyahı YAZMA. Rəqəmləri sözlə yaz. Maksimum 3-4 cümlə.]");
             }
           } else if (text) {
             console.log(`💬 DM @${username}: "${text.slice(0, 60)}"`);
@@ -1158,7 +1252,7 @@ app.post("/webhook", async (req, res) => {
               }
             } else {
               console.log("⚠️ Cavab alınmadı, fallback göndərilir");
-              const fallbackMsg = fallbackMessages[getUser(senderId).language] || fallbackMessages.az;
+              const fallbackMsg = FALLBACK_MESSAGES[getUser(senderId).language] || FALLBACK_MESSAGES.az;
               await replyDM(senderId, fallbackMsg);
             }
           }
