@@ -261,26 +261,46 @@ XİDMƏTLƏR VƏ QİYMƏTLƏR:
 4. SEO: 450-1800 AZN/ay
 5. Texniki dəstək: 250-1500 AZN/saat (və ya abunə)
 
-NİTQ ETİKETİ VƏ ÜSLUB:
-- Salamlaşma: "Salam", "Hörmətli", "Siz" ilə müraciət
-- Sağollaşma: "Sağ olun", "Sağ ol", "Xoş oldu" (səhvən "xoş gəldi" demə)
-- Təşəkkürə cavab: "Buyurun", "Xahiş edirəm", "Bizim üçün şərəfdir"
-- "Bizimlə" – birgəlik halı (məs: "bizimlə əlaqə saxlayın")
-- "Bizə" – yönlük halı (məs: "bizə yazın")
-- Cümlələrdə halları düzgün işlət
+KRİTİK QAYDA - SALAMLAŞMA:
+- "Salam" YALNIZ söhbətin ƏN ƏVVƏLINDƏ, ilk mesajda de
+- Davamında "Salam" demə, birbaşa suala cavab ver
+- Təkrar salamlaşma səhvdir!
 
-DAVRANIŞ:
-- Təbii, peşəkar, mehriban danış
-- Hər cavabda 1-2 emoji istifadə et
-- Qısa suala qısa, ətraflı suala ətraflı cavab ver
-- Eyni fikri təkrar etmə
-- Uydurma məlumat vermə
+DOĞRU MİSAL:
+İstifadəçi: "Salam, xidmətlər haqqında məlumat"
+Sən: "Salam! Hansı xidmət barədə ətraflı məlumat istəyirsiniz? 😊"
+İstifadəçi: "Vebsayt qiymətləri"
+Sən: "Vebsayt 3 kateqoriyada təklif edirik..." (SALAM YOX!)
 
-ƏLAQƏSİZ SUALLAR: şirkətlə əlaqəsi olmayan mövzularda:
-"Bu mövzu mənim ixtisasım xaricindədir. Sizə 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
+YANLIŞ MİSAL:
+İstifadəçi: "Vebsayt qiymətləri"
+Sən: "Salam! Vebsayt..." ❌ (Artıq salamlaşmısan!)
 
-CANLI DƏSTƏK: istifadəçi "operator", "canlı dəstək", "insan" və s. yazdıqda cavab:
-"Sizi dərhal canlı dəstəyə yönləndiririk. Mütəxəssisimiz ən qısa zamanda sizinlə əlaqə saxlayacaq 🙏"`;
+QRAMMATKA VƏ DİL:
+- Azərbaycan dilində HAL dəyişikliklərini düzgün işlət
+- "Bizimlə" (with us), "Bizə" (to us), "Bizim" (our) - qarışdırma
+- "Xoş gəldi" YOX, "Xoş oldu" de (sağollaşma zamanı)
+- Cümlələr qısa və aydın olsun
+- Təkrar söz işlətmə
+
+NİTQ ÜSLUBU:
+- Təbii və səmimi danış (robot kimi yox)
+- Hər cavabda 1-2 emoji
+- Qısa suala qısa cavab (1-2 cümlə)
+- Ətraflı suala ətraflı cavab (3-5 cümlə)
+- Müştəriyə "Siz" ilə müraciət et
+- Uydurma məlumat vermə - yalnız məlum faktlar
+
+KONTEKSTƏ DİQQƏT:
+- Söhbət tarixçəsini nəzərə al
+- Eyni məlumatı təkrar söyləmə
+- Əgər artıq cavab veribsənsə, qısaca xatırlat
+
+ƏLAQƏSİZ SUALLAR:
+"Bu mənim ixtisasım xaricindədir. 01 Code Studio xidmətləri barədə kömək edə bilərəm 😊"
+
+CANLI DƏSTƏK TƏLƏBİ:
+"Sizi canlı dəstəyə yönləndirirəm. Mütəxəssisimiz tezliklə əlaqə saxlayacaq 🙏"`;
 
 async function askAI(userId, message, lastService) {
   if (!groq) return null;
@@ -326,6 +346,44 @@ async function askAI(userId, message, lastService) {
     return reply;
   } catch (e) {
     console.log("Groq xətası:", e.message);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════
+// SƏSLİ MESAJ TRANSKRİPSİYA (GROQ WHISPER)
+// ════════════════════════════════════════════════════
+async function transcribeAudio(audioUrl) {
+  if (!groq) {
+    console.error("❌ Groq mövcud deyil, səsli mesaj işlənə bilməz");
+    return null;
+  }
+
+  try {
+    // Instagram audio URL-dən faylı endiririk
+    console.log("⬇️ Audio endirilir:", audioUrl);
+    const response = await axios.get(audioUrl, {
+      responseType: 'arraybuffer',
+      params: { access_token: CONFIG.IG_ACCESS_TOKEN },
+      timeout: 30000
+    });
+
+    // Groq Whisper API ilə transkript edirik
+    const audioBuffer = Buffer.from(response.data);
+    const audioFile = new File([audioBuffer], "audio.m4a", { type: "audio/m4a" });
+
+    const transcription = await groq.audio.transcriptions.create({
+      file: audioFile,
+      model: "whisper-large-v3",
+      language: "az", // Azərbaycan dili (auto-detect üçün silin)
+      response_format: "text"
+    });
+
+    console.log("✅ Transkript:", transcription.slice(0, 100));
+    return transcription.trim();
+
+  } catch (e) {
+    console.error("❌ Audio transkript xətası:", e.response?.data || e.message);
     return null;
   }
 }
@@ -829,10 +887,15 @@ app.post("/webhook", async (req, res) => {
       // ── DM mesajları ───────────────────────────────
       for (const msg of entry.messaging || []) {
         const senderId = msg.sender?.id;
-        const text = msg.message?.text;
+        let text = msg.message?.text;
         const msgId = msg.message?.mid;
+        const attachments = msg.message?.attachments || [];
 
-        if (!text || !senderId || !msgId) continue;
+        // Səsli mesaj yoxlaması
+        const audioAttachment = attachments.find(a => a.type === 'audio' || a.type === 'voice');
+
+        if (!text && !audioAttachment) continue;
+        if (!senderId || !msgId) continue;
         if (senderId === myId) continue;
         if (isLocked(msgId) || isProcessed(msgId)) {
           console.log(`⏭️ DM keçildi: ${msgId}`);
@@ -842,17 +905,43 @@ app.post("/webhook", async (req, res) => {
         lock(msgId);
         try {
           const username = msg.sender?.username || "";
-          console.log(`💬 DM @${username}: "${text.slice(0, 60)}"`);
-          logEvent(senderId, "dm", text);
 
-          const reply = await getReply(senderId, text, username);
-          if (reply) {
-            await replyDM(senderId, reply);
-            console.log("✅ Cavablandı");
-          } else {
-            console.log("⚠️ Cavab alınmadı, fallback göndərilir");
-            const fallbackMsg = fallbackMessages[getUser(senderId).language] || fallbackMessages.az;
-            await replyDM(senderId, fallbackMsg);
+          // Səsli mesaj varsa, transcribe et
+          if (audioAttachment && !text) {
+            console.log(`🎤 Səsli mesaj @${username}`);
+            const audioUrl = audioAttachment.payload?.url;
+
+            if (audioUrl) {
+              text = await transcribeAudio(audioUrl);
+
+              if (!text) {
+                await replyDM(senderId, "Üzr istəyirəm, səsli mesajınızı başa düşə bilmədim 😔 Zəhmət olmasa yazılı olaraq göndərin.");
+                console.log("❌ Səsli mesaj transcribe edilə bilmədi");
+                continue;
+              }
+
+              logEvent(senderId, "voice_message", text);
+              console.log(`✅ Transcribe edildi: "${text.slice(0, 60)}"`);
+
+              // İstifadəçiyə transcripti göstər (optional)
+              await replyDM(senderId, `🎤 Başa düşdüm: "${text}"\n\nCavabınız...`);
+            }
+          } else if (text) {
+            console.log(`💬 DM @${username}: "${text.slice(0, 60)}"`);
+            logEvent(senderId, "dm", text);
+          }
+
+          // Mətn varsa (yazılı və ya transcribe edilmiş), cavab ver
+          if (text) {
+            const reply = await getReply(senderId, text, username);
+            if (reply) {
+              await replyDM(senderId, reply);
+              console.log("✅ Cavablandı");
+            } else {
+              console.log("⚠️ Cavab alınmadı, fallback göndərilir");
+              const fallbackMsg = fallbackMessages[getUser(senderId).language] || fallbackMessages.az;
+              await replyDM(senderId, fallbackMsg);
+            }
           }
         } finally {
           unlock(msgId);
