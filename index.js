@@ -34,6 +34,8 @@ const CONFIG = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID || "",
   ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
   PORT:               process.env.PORT || 3000,
+  ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
+  ENABLE_VOICE_REPLIES: process.env.ENABLE_VOICE_REPLIES === "true",
 };
 
 // Kritik environment variables validation
@@ -61,6 +63,13 @@ if (CONFIG.GROQ_API_KEY) {
   console.log("✅ Groq AI hazırdır");
 } else {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
+}
+
+// ElevenLabs TTS hazırlığı
+if (CONFIG.ELEVENLABS_API_KEY) {
+  console.log("✅ ElevenLabs TTS hazırdır");
+} else {
+  console.log("⚠️ ELEVENLABS_API_KEY tapılmadı - səsli cavablar deaktiv");
 }
 
 // ════════════════════════════════════════════════════
@@ -418,6 +427,59 @@ async function transcribeAudio(audioUrl) {
 
   } catch (e) {
     console.error("❌ Audio transkript xətası:", e.response?.data || e.message);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════
+// MƏTN-SƏS ÇEVİRMƏ (ELEVENLABS TTS)
+// ════════════════════════════════════════════════════
+async function textToSpeechAudio(text, language = "az") {
+  if (!CONFIG.ELEVENLABS_API_KEY) {
+    console.error("❌ ElevenLabs API key mövcud deyil");
+    return null;
+  }
+
+  try {
+    // Dil üzrə səs seçimi
+    const voices = {
+      az: "pNInz6obpgDQGcFmaJgB", // Adam (multilingual)
+      ru: "pNInz6obpgDQGcFmaJgB", // Adam (multilingual)
+      en: "pNInz6obpgDQGcFmaJgB"  // Adam (multilingual)
+    };
+
+    const voiceId = voices[language] || voices.az;
+
+    console.log(`🎤 ElevenLabs TTS başladı: "${text.slice(0, 50)}..." (${language})`);
+
+    // ElevenLabs API çağırışı
+    const response = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        text: text,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        responseType: 'arraybuffer',
+        timeout: 30000
+      }
+    );
+
+    const audioBuffer = Buffer.from(response.data);
+    console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
+    return audioBuffer;
+
+  } catch (e) {
+    console.error("❌ ElevenLabs TTS xətası:", e.response?.data?.detail || e.message);
     return null;
   }
 }
@@ -871,6 +933,31 @@ async function replyDM(recipientId, message) {
   }
 }
 
+async function replyAudioDM(recipientId, audioBuffer) {
+  try {
+    // Audio faylını base64-ə çevir
+    const base64Audio = audioBuffer.toString('base64');
+    const audioDataUri = `data:audio/mp3;base64,${base64Audio}`;
+
+    await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/me/messages`, {
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type: "audio",
+          payload: {
+            url: audioDataUri,
+            is_reusable: false
+          }
+        }
+      }
+    });
+    console.log("✅ Audio DM göndərildi");
+  } catch (e) {
+    console.error("❌ Audio DM xətası:", e.response?.data?.error?.message || e.message);
+    throw e;
+  }
+}
+
 // ════════════════════════════════════════════════════
 // WEBHOOK
 // ════════════════════════════════════════════════════
@@ -967,8 +1054,31 @@ app.post("/webhook", async (req, res) => {
           if (text) {
             const reply = await getReply(senderId, text, username);
             if (reply) {
-              await replyDM(senderId, reply);
-              console.log("✅ Cavablandı");
+              // Əgər istifadəçi səsli mesaj göndəribsə və TTS aktivdirsə, səslə cavab ver
+              if (audioAttachment && CONFIG.ENABLE_VOICE_REPLIES && CONFIG.ELEVENLABS_API_KEY) {
+                try {
+                  const userLang = getUser(senderId).language || "az";
+                  const audioBuffer = await textToSpeechAudio(reply, userLang);
+
+                  if (audioBuffer) {
+                    await replyAudioDM(senderId, audioBuffer);
+                    console.log("✅ Səsli cavab göndərildi");
+                  } else {
+                    // Audio yaradıla bilməzsə, mətn göndər
+                    await replyDM(senderId, reply);
+                    console.log("⚠️ Audio yaradılmadı, mətn göndərildi");
+                  }
+                } catch (audioError) {
+                  // Audio göndərmə xətası olarsa, mətn göndər
+                  console.log("⚠️ Audio göndərmə xətası, mətnlə davam edilir");
+                  await replyDM(senderId, reply);
+                  console.log("✅ Fallback: Mətn cavabı göndərildi");
+                }
+              } else {
+                // Normal mətn cavabı
+                await replyDM(senderId, reply);
+                console.log("✅ Cavablandı");
+              }
             } else {
               console.log("⚠️ Cavab alınmadı, fallback göndərilir");
               const fallbackMsg = fallbackMessages[getUser(senderId).language] || fallbackMessages.az;
