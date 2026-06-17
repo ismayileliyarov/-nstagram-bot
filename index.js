@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const session = require("express-session");
 const fs = require("fs");
+const { execSync } = require("child_process");
 const Groq = require("groq-sdk");
 
 const app = express();
@@ -345,6 +346,12 @@ KONTEKSTƏ DİQQƏT:
 CANLI DƏSTƏK TƏLƏBİ:
 "Sizi canlı dəstəyə yönləndirirəm. Mütəxəssisimiz tezliklə əlaqə saxlayacaq 🙏"`;
 
+// Groq üçün model fallback siyahısı
+const GROQ_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-70b-versatile",
+];
+
 async function askAI(userId, message, lastService) {
   if (!groq) return null;
 
@@ -363,34 +370,70 @@ async function askAI(userId, message, lastService) {
 
   const systemWithContext = `${SYSTEM_PROMPT}${langNote ? "\n\n" + langNote : ""}${serviceNote ? "\n\n" + serviceNote : ""}`;
 
+  // Tarixçəni qısalt (token limitinə görə)
+  const recentHistory = u.history.slice(-4);
+
   const messages = [
     { role: "system", content: systemWithContext },
-    ...u.history.slice(-6),
+    ...recentHistory,
     { role: "user", content: message }
   ];
 
-  try {
-    const res = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages,
-      temperature: 0.4,
-      max_tokens: 500,
-    });
+  // Retry + model fallback ilə dayanıqlı AI çağırışı
+  for (const model of GROQ_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await groq.chat.completions.create({
+          model,
+          messages,
+          temperature: 0.4,
+          max_tokens: 400,
+        });
 
-    const reply = res.choices[0]?.message?.content?.trim();
-    if (!reply) {
-      console.log("Groq boş cavab qaytardı");
-      return null;
+        const reply = res.choices[0]?.message?.content?.trim();
+        if (!reply) {
+          console.log(`⚠️ ${model} boş cavab qaytardı (cəhd ${attempt})`);
+          continue; // növbəti cəhd
+        }
+
+        if (model !== GROQ_MODELS[0]) {
+          console.log(`🔄 Fallback model istifadə olundu: ${model}`);
+        }
+
+        addHistory(userId, "user", message);
+        addHistory(userId, "assistant", reply);
+
+        return reply;
+      } catch (e) {
+        const errMsg = e.message || "";
+        const isRateLimit = errMsg.includes("rate") || errMsg.includes("429");
+        const isOverloaded = errMsg.includes("overloaded") || errMsg.includes("Failed to generate");
+        const isTimeout = errMsg.includes("timeout") || errMsg.includes("ETIMEDOUT");
+
+        console.log(`⚠️ ${model} xəta (cəhd ${attempt}/${2}): ${errMsg.slice(0, 100)}`);
+
+        // Rate limit → qısa gözləmə
+        if (isRateLimit && attempt < 2) {
+          await new Promise(r => setTimeout(r, 1500));
+          continue;
+        }
+
+        // Overloaded/timeout → dərhal növbəti model
+        if (isOverloaded || isTimeout) {
+          break; // model-i dəyiş
+        }
+
+        // Başqa xəta → növbəti cəhd
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+      }
     }
-
-    addHistory(userId, "user", message);
-    addHistory(userId, "assistant", reply);
-
-    return reply;
-  } catch (e) {
-    console.log("Groq xətası:", e.message);
-    return null;
   }
+
+  console.error("❌ Bütün Groq modelləri uğursuz oldu");
+  return null;
 }
 
 // ════════════════════════════════════════════════════
@@ -418,7 +461,6 @@ async function transcribeAudio(audioUrl) {
     const transcription = await groq.audio.transcriptions.create({
       file: audioFile,
       model: "whisper-large-v3",
-      language: "az", // Azərbaycan dili (auto-detect üçün silin)
       response_format: "text"
     });
 
@@ -935,14 +977,28 @@ async function replyDM(recipientId, message) {
 
 async function replyAudioDM(recipientId, audioBuffer) {
   try {
-    // 1. Audio faylını müvəqqəti olaraq serverdə saxla
-    const filename = `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp3`;
-    const filePath = `/tmp/${filename}`;
-    fs.writeFileSync(filePath, audioBuffer);
+    // Instagram yalnız aac, m4a, wav, mp4 dəstəkləyir — mp3 YOX!
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const mp3Path = `/tmp/voice_${uniqueId}.mp3`;
+    const m4aPath = `/tmp/voice_${uniqueId}.m4a`;
+    const m4aFilename = `voice_${uniqueId}.m4a`;
 
-    // 2. Public URL yarat (Render.com və ya hosting-ə uyğun)
+    // 1. MP3 faylı yaz
+    fs.writeFileSync(mp3Path, audioBuffer);
+
+    // 2. MP3 → M4A konvertasiya et (ffmpeg lazımdır)
+    console.log("🔄 Audio MP3-dən M4A-ya çevrilir...");
+    execSync(`ffmpeg -i "${mp3Path}" -c:a aac -b:a 128k "${m4aPath}" -y`, {
+      timeout: 30000,
+      stdio: 'pipe'
+    });
+
+    // 3. Orijinal MP3 faylını sil
+    try { fs.unlinkSync(mp3Path); } catch {}
+
+    // 4. Public URL yarat (Render.com və ya hosting-ə uyğun)
     const baseUrl = process.env.PUBLIC_URL || `http://localhost:${CONFIG.PORT}`;
-    const audioUrl = `${baseUrl}/tmp-audio/${filename}`;
+    const audioUrl = `${baseUrl}/tmp-audio/${m4aFilename}`;
 
     console.log(`🎵 Audio URL: ${audioUrl}`);
 
@@ -959,10 +1015,10 @@ async function replyAudioDM(recipientId, audioBuffer) {
       }
     });
 
-    // 3. Faylı təmizlə (10 saniyə sonra - Instagram götürənə qədər gözlə)
+    // 5. M4A faylı təmizlə (15 saniyə sonra - Instagram götürənə qədər gözlə)
     setTimeout(() => {
-      try { fs.unlinkSync(filePath); } catch {}
-    }, 10000);
+      try { fs.unlinkSync(m4aPath); } catch {}
+    }, 15000);
 
     console.log("✅ Audio DM göndərildi");
   } catch (e) {
@@ -1252,14 +1308,12 @@ app.get("/admin/unblock/:id", adminAuth, (req, res) => {
 app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
 
 // Audio fayllara müvəqqəti xidmət (Instagram üçün)
-app.get("/tmp-audio/:filename", (req, res) => {
-  const filePath = `/tmp/${req.params.filename}`;
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("Audio tapılmadı");
+app.use("/tmp-audio", express.static("/tmp", {
+  maxAge: '30s', // 30 saniyə sonra cache silinir
+  setHeaders: (res) => {
+    res.setHeader("Content-Type", "audio/mp4");
   }
-  res.setHeader("Content-Type", "audio/mpeg");
-  res.sendFile(filePath);
-});
+}));
 
 // Health check endpoint - render.com üçün
 app.get("/health", (req, res) => {
