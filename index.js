@@ -935,9 +935,16 @@ async function replyDM(recipientId, message) {
 
 async function replyAudioDM(recipientId, audioBuffer) {
   try {
-    // Audio faylını base64-ə çevir
-    const base64Audio = audioBuffer.toString('base64');
-    const audioDataUri = `data:audio/mp3;base64,${base64Audio}`;
+    // 1. Audio faylını müvəqqəti olaraq serverdə saxla
+    const filename = `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp3`;
+    const filePath = `/tmp/${filename}`;
+    fs.writeFileSync(filePath, audioBuffer);
+
+    // 2. Public URL yarat (Render.com və ya hosting-ə uyğun)
+    const baseUrl = process.env.PUBLIC_URL || `http://localhost:${CONFIG.PORT}`;
+    const audioUrl = `${baseUrl}/tmp-audio/${filename}`;
+
+    console.log(`🎵 Audio URL: ${audioUrl}`);
 
     await igRequest(`https://graph.instagram.com/${IG_API_VERSION}/me/messages`, {
       recipient: { id: recipientId },
@@ -945,12 +952,18 @@ async function replyAudioDM(recipientId, audioBuffer) {
         attachment: {
           type: "audio",
           payload: {
-            url: audioDataUri,
+            url: audioUrl,
             is_reusable: false
           }
         }
       }
     });
+
+    // 3. Faylı təmizlə (10 saniyə sonra - Instagram götürənə qədər gözlə)
+    setTimeout(() => {
+      try { fs.unlinkSync(filePath); } catch {}
+    }, 10000);
+
     console.log("✅ Audio DM göndərildi");
   } catch (e) {
     console.error("❌ Audio DM xətası:", e.response?.data?.error?.message || e.message);
@@ -1237,6 +1250,16 @@ app.get("/admin/unblock/:id", adminAuth, (req, res) => {
 // SERVER
 // ════════════════════════════════════════════════════
 app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
+
+// Audio fayllara müvəqqəti xidmət (Instagram üçün)
+app.get("/tmp-audio/:filename", (req, res) => {
+  const filePath = `/tmp/${req.params.filename}`;
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Audio tapılmadı");
+  }
+  res.setHeader("Content-Type", "audio/mpeg");
+  res.sendFile(filePath);
+});
 
 // Health check endpoint - render.com üçün
 app.get("/health", (req, res) => {
