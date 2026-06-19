@@ -66,9 +66,9 @@ if (CONFIG.GROQ_API_KEY) {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
 
-// ElevenLabs TTS hazırlığı
+// ElevenLabs TTS
 if (CONFIG.ELEVENLABS_API_KEY) {
-  console.log("✅ ElevenLabs TTS hazırdır (premium keyfiyyət)");
+  console.log("✅ ElevenLabs TTS hazırdır");
 } else {
   console.log("⚠️ ELEVENLABS_API_KEY tapılmadı - səsli cavablar deaktiv");
 }
@@ -566,7 +566,7 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Ən təbii və təmiz səslər - ElevenLabs premium voice-lar
+    // Ən təbii səslər - ElevenLabs premium voices
     const voices = {
       az: "pMsXgVXv3BLzUgSXRplE",   // Serena - ən təbii multilingual qadın səsi
       ru: "MF3mGyEYCl7XYWbV9V6O",   // Elli - təbii Rus qadın səsi
@@ -583,18 +583,18 @@ async function textToSpeechAudio(text, language = "az") {
       return null;
     }
 
-    console.log(`🎤 ElevenLabs TTS (premium): "${processedText.slice(0, 60)}..." (${language})`);
+    console.log(`🎤 ElevenLabs TTS: "${processedText.slice(0, 60)}..." (${language})`);
 
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         text: processedText,
-        model_id: "eleven_multilingual_v2",  // Ən yaxşı keyfiyyət
+        model_id: "eleven_multilingual_v2",
         voice_settings: {
-          stability: 0.5,              // Orta - təbii və nəzarətli
-          similarity_boost: 0.8,       // Yüksək - orijinal səsə çox yaxın
-          style: 0.0,                  // Sıfır - sadə, təbii oxuş
-          use_speaker_boost: true      // Səs keyfiyyətini maksimum artırır
+          stability: 0.5,
+          similarity_boost: 0.8,
+          style: 0.0,
+          use_speaker_boost: true
         }
       },
       {
@@ -609,7 +609,7 @@ async function textToSpeechAudio(text, language = "az") {
     );
 
     const audioBuffer = Buffer.from(response.data);
-    console.log(`✅ Premium audio yaradıldı: ${audioBuffer.length} bytes`);
+    console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
     return audioBuffer;
 
   } catch (e) {
