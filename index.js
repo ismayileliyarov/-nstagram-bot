@@ -566,14 +566,14 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Ən təbii səslər - ElevenLabs premium voices
+    // Pulsuz public səslər - hər hesabda işləyir
     const voices = {
-      az: "pMsXgVXv3BLzUgSXRplE",   // Serena - ən təbii multilingual qadın səsi
-      ru: "MF3mGyEYCl7XYWbV9V6O",   // Elli - təbii Rus qadın səsi
-      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - ən təbii İngilis səsi
+      az: "21m00Tcm4TlvDq8ikWAM",   // Rachel - multilingual, pulsuz
+      ru: "21m00Tcm4TlvDq8ikWAM",   // Rachel - multilingual, pulsuz
+      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - multilingual, pulsuz
     };
 
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || voices.az;
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || "21m00Tcm4TlvDq8ikWAM";
 
     // Mətni TTS üçün hazırla
     const processedText = prepareTextForTTS(text);
@@ -1445,3 +1445,4 @@ app.listen(CONFIG.PORT, () => {
   console.log(`🤖 Groq AI: ${groq ? "aktiv" : "deaktiv"}`);
   console.log(`📨 Telegram bildirişi: ${CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID ? "aktiv" : "deaktiv"}`);
 });
+
