@@ -35,6 +35,7 @@ const CONFIG = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID || "",
   ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
   PORT:               process.env.PORT || 3000,
+  ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
   ENABLE_VOICE_REPLIES: process.env.ENABLE_VOICE_REPLIES === "true",
 };
 
@@ -65,7 +66,12 @@ if (CONFIG.GROQ_API_KEY) {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
 
-console.log("✅ Google TTS (pulsuz) hazırdır");
+// ElevenLabs TTS hazırlığı
+if (CONFIG.ELEVENLABS_API_KEY) {
+  console.log("✅ ElevenLabs TTS hazırdır (premium keyfiyyət)");
+} else {
+  console.log("⚠️ ELEVENLABS_API_KEY tapılmadı - səsli cavablar deaktiv");
+}
 
 // ════════════════════════════════════════════════════
 // ANALİTİKA
@@ -554,9 +560,21 @@ function prepareTextForTTS(text) {
 }
 
 async function textToSpeechAudio(text, language = "az") {
-  const gTTS = require('gtts');
+  if (!CONFIG.ELEVENLABS_API_KEY) {
+    console.error("❌ ElevenLabs API key mövcud deyil");
+    return null;
+  }
 
   try {
+    // Ən təbii və təmiz səslər - ElevenLabs premium voice-lar
+    const voices = {
+      az: "pMsXgVXv3BLzUgSXRplE",   // Serena - ən təbii multilingual qadın səsi
+      ru: "MF3mGyEYCl7XYWbV9V6O",   // Elli - təbii Rus qadın səsi
+      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - ən təbii İngilis səsi
+    };
+
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || voices.az;
+
     // Mətni TTS üçün hazırla
     const processedText = prepareTextForTTS(text);
 
@@ -565,50 +583,37 @@ async function textToSpeechAudio(text, language = "az") {
       return null;
     }
 
-    // Google TTS dil kodları
-    const langMap = {
-      az: 'az',  // Azərbaycan
-      ru: 'ru',  // Rus
-      en: 'en'   // İngilis
-    };
+    console.log(`🎤 ElevenLabs TTS (premium): "${processedText.slice(0, 60)}..." (${language})`);
 
-    const ttsLang = langMap[language] || 'az';
-
-    console.log(`🎤 Google TTS başladı: "${processedText.slice(0, 60)}..." (${ttsLang})`);
-
-    // Unique filename
-    const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const mp3Path = `/tmp/tts_${uniqueId}.mp3`;
-
-    // gTTS istifadə edərək audio yaratmaq
-    return new Promise((resolve, reject) => {
-      const gtts = new gTTS(processedText, ttsLang);
-
-      gtts.save(mp3Path, (err) => {
-        if (err) {
-          console.error("❌ Google TTS xətası:", err.message);
-          reject(err);
-          return;
+    const response = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        text: processedText,
+        model_id: "eleven_multilingual_v2",  // Ən yaxşı keyfiyyət
+        voice_settings: {
+          stability: 0.5,              // Orta - təbii və nəzarətli
+          similarity_boost: 0.8,       // Yüksək - orijinal səsə çox yaxın
+          style: 0.0,                  // Sıfır - sadə, təbii oxuş
+          use_speaker_boost: true      // Səs keyfiyyətini maksimum artırır
         }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        responseType: 'arraybuffer',
+        timeout: 30000
+      }
+    );
 
-        // Audio faylı oxu
-        try {
-          const audioBuffer = fs.readFileSync(mp3Path);
-          console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
-
-          // Faylı sil
-          try { fs.unlinkSync(mp3Path); } catch {}
-
-          resolve(audioBuffer);
-        } catch (readErr) {
-          console.error("❌ Audio oxuma xətası:", readErr.message);
-          reject(readErr);
-        }
-      });
-    });
+    const audioBuffer = Buffer.from(response.data);
+    console.log(`✅ Premium audio yaradıldı: ${audioBuffer.length} bytes`);
+    return audioBuffer;
 
   } catch (e) {
-    console.error("❌ Google TTS xətası:", e.message);
+    console.error("❌ ElevenLabs TTS xətası:", e.response?.data?.detail || e.message);
     return null;
   }
 }
