@@ -35,7 +35,6 @@ const CONFIG = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID || "",
   ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
   PORT:               process.env.PORT || 3000,
-  ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
   ENABLE_VOICE_REPLIES: process.env.ENABLE_VOICE_REPLIES === "true",
 };
 
@@ -66,12 +65,7 @@ if (CONFIG.GROQ_API_KEY) {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
 
-// ElevenLabs TTS hazırlığı
-if (CONFIG.ELEVENLABS_API_KEY) {
-  console.log("✅ ElevenLabs TTS hazırdır");
-} else {
-  console.log("⚠️ ELEVENLABS_API_KEY tapılmadı - səsli cavablar deaktiv");
-}
+console.log("✅ Google TTS (pulsuz) hazırdır");
 
 // ════════════════════════════════════════════════════
 // ANALİTİKA
@@ -355,7 +349,7 @@ SƏSLİ CAVAB QAYDALARI (ÇOX VACİB!):
 - Ulduz (**), tire (-), nömrə (1. 2. 3.) YAZMA
 - Rəqəmləri sözlə yaz: "520" → "beş yüz iyirmi", "1300" → "min üç yüz"
 - "AZN" → "manat" yaz
-- Çox uzun cavab vermə - 3-4 cümlə kifayətdir
+- Çox uzun cavab vermə - 2-3 cümlə kifayətdir (Google TTS limitinə görə)
 - Təbii pauzalar əlavə et: "Bəli, ... bu mümkündür"
 - "Əlbəttə", "Məmnuniyyətlə" kimi təbii ifadələr işlət`;
 
@@ -560,22 +554,9 @@ function prepareTextForTTS(text) {
 }
 
 async function textToSpeechAudio(text, language = "az") {
-  if (!CONFIG.ELEVENLABS_API_KEY) {
-    console.error("❌ ElevenLabs API key mövcud deyil");
-    return null;
-  }
+  const gTTS = require('gtts');
 
   try {
-    // Ən təbii səslər — ElevenLabs Voice Library
-    // process.env.ELEVENLABS_VOICE_ID ilə öz səsinizi təyin edə bilərsiniz
-    const voices = {
-      az: "EXAVITQu4vr4xnSDxMaL",   // Bella - yumşaq, təbii qadın səsi (multilingual)
-      ru: "MF3mGyEYCl7XYWbV9V6O",   // Elli - təbii Rus qadın səsi
-      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - ən təbii İngilis səsi
-    };
-
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || voices.az;
-
     // Mətni TTS üçün hazırla
     const processedText = prepareTextForTTS(text);
 
@@ -584,37 +565,50 @@ async function textToSpeechAudio(text, language = "az") {
       return null;
     }
 
-    console.log(`🎤 ElevenLabs TTS başladı: "${processedText.slice(0, 60)}..." (${language})`);
+    // Google TTS dil kodları
+    const langMap = {
+      az: 'az',  // Azərbaycan
+      ru: 'ru',  // Rus
+      en: 'en'   // İngilis
+    };
 
-    const response = await axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        text: processedText,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: {
-          stability: 0.35,            // Aşağı = daha təbii, insanabənzər dəyişiklik
-          similarity_boost: 0.85,     // Yüksək = orijinal səsə daha yaxın
-          style: 0.45,                // Orta = bir az emosiya, amma stabil
-          use_speaker_boost: true     // Səs keyfiyyətini artırır
+    const ttsLang = langMap[language] || 'az';
+
+    console.log(`🎤 Google TTS başladı: "${processedText.slice(0, 60)}..." (${ttsLang})`);
+
+    // Unique filename
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const mp3Path = `/tmp/tts_${uniqueId}.mp3`;
+
+    // gTTS istifadə edərək audio yaratmaq
+    return new Promise((resolve, reject) => {
+      const gtts = new gTTS(processedText, ttsLang);
+
+      gtts.save(mp3Path, (err) => {
+        if (err) {
+          console.error("❌ Google TTS xətası:", err.message);
+          reject(err);
+          return;
         }
-      },
-      {
-        headers: {
-          'Accept': 'audio/mpeg',
-          'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'arraybuffer',
-        timeout: 30000
-      }
-    );
 
-    const audioBuffer = Buffer.from(response.data);
-    console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
-    return audioBuffer;
+        // Audio faylı oxu
+        try {
+          const audioBuffer = fs.readFileSync(mp3Path);
+          console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
+
+          // Faylı sil
+          try { fs.unlinkSync(mp3Path); } catch {}
+
+          resolve(audioBuffer);
+        } catch (readErr) {
+          console.error("❌ Audio oxuma xətası:", readErr.message);
+          reject(readErr);
+        }
+      });
+    });
 
   } catch (e) {
-    console.error("❌ ElevenLabs TTS xətası:", e.response?.data?.detail || e.message);
+    console.error("❌ Google TTS xətası:", e.message);
     return null;
   }
 }
