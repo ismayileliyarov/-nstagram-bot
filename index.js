@@ -593,15 +593,27 @@ async function textToSpeechAudio(text, language = "az") {
       CONFIG.AZURE_SPEECH_REGION
     );
     speechConfig.speechSynthesisVoiceName = voiceName;
-    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio48Khz192KBitRateMonoMp3;
+
+    // SSML ilə daha təbii danışıq
+    const ssml = `
+<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${language}">
+  <voice name="${voiceName}">
+    <prosody rate="-5%" pitch="+0%" volume="+0%">
+      <break time="100ms"/>
+      ${processedText}
+      <break time="200ms"/>
+    </prosody>
+  </voice>
+</speak>`.trim();
 
     // Audio output buffer
     const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, null);
 
     return new Promise((resolve, reject) => {
-      synthesizer.speakTextAsync(
-        processedText,
+      synthesizer.speakSsmlAsync(
+        ssml,
         result => {
           synthesizer.close();
           if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
