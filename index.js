@@ -4,6 +4,7 @@ const session = require("express-session");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const Groq = require("groq-sdk");
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
 
 const app = express();
 app.use(express.json());
@@ -35,7 +36,8 @@ const CONFIG = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID || "",
   ADMIN_PASSWORD:     process.env.ADMIN_PASSWORD || "admin123",
   PORT:               process.env.PORT || 3000,
-  ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
+  AZURE_SPEECH_KEY:   process.env.AZURE_SPEECH_KEY || "",
+  AZURE_SPEECH_REGION: process.env.AZURE_SPEECH_REGION || "westeurope",
   ENABLE_VOICE_REPLIES: process.env.ENABLE_VOICE_REPLIES === "true",
 };
 
@@ -66,11 +68,11 @@ if (CONFIG.GROQ_API_KEY) {
   console.log("⚠️ GROQ_API_KEY tapılmadı");
 }
 
-// ElevenLabs TTS
-if (CONFIG.ELEVENLABS_API_KEY) {
-  console.log("✅ ElevenLabs TTS hazırdır");
+// Azure Speech TTS
+if (CONFIG.AZURE_SPEECH_KEY && CONFIG.AZURE_SPEECH_REGION) {
+  console.log("✅ Azure Speech TTS hazırdır");
 } else {
-  console.log("⚠️ ELEVENLABS_API_KEY tapılmadı - səsli cavablar deaktiv");
+  console.log("⚠️ AZURE_SPEECH_KEY və ya AZURE_SPEECH_REGION tapılmadı - səsli cavablar deaktiv");
 }
 
 // ════════════════════════════════════════════════════
@@ -560,20 +562,20 @@ function prepareTextForTTS(text) {
 }
 
 async function textToSpeechAudio(text, language = "az") {
-  if (!CONFIG.ELEVENLABS_API_KEY) {
-    console.error("❌ ElevenLabs API key mövcud deyil");
+  if (!CONFIG.AZURE_SPEECH_KEY || !CONFIG.AZURE_SPEECH_REGION) {
+    console.error("❌ Azure Speech credentials mövcud deyil");
     return null;
   }
 
   try {
-    // Pulsuz public səslər - hər hesabda işləyir
+    // Azure Neural səsləri
     const voices = {
-      az: "21m00Tcm4TlvDq8ikWAM",   // Rachel - multilingual, pulsuz
-      ru: "21m00Tcm4TlvDq8ikWAM",   // Rachel - multilingual, pulsuz
-      en: "21m00Tcm4TlvDq8ikWAM"    // Rachel - multilingual, pulsuz
+      az: "az-AZ-BanuNeural",      // Azərbaycan qadın səsi
+      ru: "ru-RU-SvetlanaNeural",  // Rus qadın səsi
+      en: "en-US-JennyNeural"      // İngilis qadın səsi
     };
 
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || voices[language] || "21m00Tcm4TlvDq8ikWAM";
+    const voiceName = voices[language] || voices.az;
 
     // Mətni TTS üçün hazırla
     const processedText = prepareTextForTTS(text);
@@ -583,40 +585,46 @@ async function textToSpeechAudio(text, language = "az") {
       return null;
     }
 
-    console.log(`🎤 ElevenLabs TTS: "${processedText.slice(0, 60)}..." (${language})`);
+    console.log(`🎤 Azure Speech TTS: "${processedText.slice(0, 60)}..." (${language})`);
 
-    const response = await axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        text: processedText,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.8,
-          style: 0.0,
-          use_speaker_boost: true
-        }
-      },
-      {
-        headers: {
-          'Accept': 'audio/mpeg',
-          'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'arraybuffer',
-        timeout: 30000
-      }
+    // Azure Speech Config
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      CONFIG.AZURE_SPEECH_KEY,
+      CONFIG.AZURE_SPEECH_REGION
     );
+    speechConfig.speechSynthesisVoiceName = voiceName;
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
 
-    const audioBuffer = Buffer.from(response.data);
-    console.log(`✅ Audio yaradıldı: ${audioBuffer.length} bytes`);
-    return audioBuffer;
+    // Audio output buffer
+    const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, null);
+
+    return new Promise((resolve, reject) => {
+      synthesizer.speakTextAsync(
+        processedText,
+        result => {
+          synthesizer.close();
+          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+            const audioData = Buffer.from(result.audioData);
+            console.log(`✅ Audio yaradıldı: ${audioData.length} bytes`);
+            resolve(audioData);
+          } else {
+            console.error("❌ Azure Speech xətası:", result.errorDetails);
+            reject(new Error(result.errorDetails));
+          }
+        },
+        error => {
+          synthesizer.close();
+          console.error("❌ Azure Speech TTS xətası:", error);
+          reject(error);
+        }
+      );
+    });
 
   } catch (e) {
-    console.error("❌ ElevenLabs TTS xətası:", e.response?.data?.detail || e.message);
-    console.error("📊 Status code:", e.response?.status);
-    console.error("📋 Full error:", JSON.stringify(e.response?.data, null, 2));
-    console.error("🔑 API Key başlanğıcı:", CONFIG.ELEVENLABS_API_KEY ? CONFIG.ELEVENLABS_API_KEY.slice(0, 10) + "..." : "YOX");
+    console.error("❌ Azure Speech TTS xətası:", e.message);
+    console.error("🔑 Azure key başlanğıcı:", CONFIG.AZURE_SPEECH_KEY ? CONFIG.AZURE_SPEECH_KEY.slice(0, 10) + "..." : "YOX");
+    console.error("🌍 Azure region:", CONFIG.AZURE_SPEECH_REGION);
     return null;
   }
 }
@@ -1228,7 +1236,7 @@ app.post("/webhook", async (req, res) => {
             const reply = await getReply(senderId, text, username);
             if (reply) {
               // Əgər istifadəçi səsli mesaj göndəribsə və TTS aktivdirsə, səslə cavab ver
-              if (audioAttachment && CONFIG.ENABLE_VOICE_REPLIES && CONFIG.ELEVENLABS_API_KEY) {
+              if (audioAttachment && CONFIG.ENABLE_VOICE_REPLIES && CONFIG.AZURE_SPEECH_KEY) {
                 try {
                   const userLang = getUser(senderId).language || "az";
                   const audioBuffer = await textToSpeechAudio(reply, userLang);
@@ -1445,4 +1453,3 @@ app.listen(CONFIG.PORT, () => {
   console.log(`🤖 Groq AI: ${groq ? "aktiv" : "deaktiv"}`);
   console.log(`📨 Telegram bildirişi: ${CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID ? "aktiv" : "deaktiv"}`);
 });
-
