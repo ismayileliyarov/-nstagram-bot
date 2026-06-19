@@ -614,6 +614,9 @@ async function textToSpeechAudio(text, language = "az") {
 
   } catch (e) {
     console.error("❌ ElevenLabs TTS xətası:", e.response?.data?.detail || e.message);
+    console.error("📊 Status code:", e.response?.status);
+    console.error("📋 Full error:", JSON.stringify(e.response?.data, null, 2));
+    console.error("🔑 API Key başlanğıcı:", CONFIG.ELEVENLABS_API_KEY ? CONFIG.ELEVENLABS_API_KEY.slice(0, 10) + "..." : "YOX");
     return null;
   }
 }
