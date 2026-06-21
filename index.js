@@ -595,20 +595,35 @@ async function textToSpeechAudio(text, language = "az") {
     speechConfig.speechSynthesisVoiceName = voiceName;
     speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio48Khz192KBitRateMonoMp3;
 
-    // SSML ilə daha təbii danışıq
+    // Təbii pauzalar üçün mətni cümlələrə böl
+    const sentences = processedText
+      .split(/(?<=[.!?…])\s+/)
+      .filter(s => s.trim().length > 0);
+
+    // Hər cümlə arasına təbii pauza əlavə et
+    const sentencesWithPauses = sentences.map((sentence, i) => {
+      const isLast = i === sentences.length - 1;
+      // Sual və nida işarəsindən sonra daha uzun pauza
+      const pauseTime = /[!?]$/.test(sentence.trim()) ? '400ms' : '250ms';
+      // Vergül olan yerlərdə qısa pauza
+      const withCommaPause = sentence.replace(/,\s*/g, ', <break time="120ms"/> ');
+      return `<break time="80ms"/>${withCommaPause}${isLast ? '' : `<break time="${pauseTime}"/>`}`;
+    }).join('\n');
+
+    // SSML ilə daha təbii danışıq — express-as stil, dinamik prosody
     const ssml = `
-<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${language}">
+<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
+       xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${language}">
   <voice name="${voiceName}">
-    <prosody rate="-5%" pitch="+0%" volume="+0%">
-      <break time="100ms"/>
-      ${processedText}
-      <break time="200ms"/>
-    </prosody>
+    <mstts:express-as style="chat" styledegree="1.5">
+      <prosody rate="-8%" pitch="-2%" volume="+0%">
+        ${sentencesWithPauses}
+      </prosody>
+    </mstts:express-as>
   </voice>
 </speak>`.trim();
 
-    // Audio output buffer
-    const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+    // Server mühitində fayl output istifadə et (speaker yoxdur)
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, null);
 
     return new Promise((resolve, reject) => {
