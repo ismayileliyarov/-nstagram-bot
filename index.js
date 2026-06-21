@@ -568,11 +568,11 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Azure Neural səsləri
+    // Azure Neural səsləri — ən təbii səslənən variantlar
     const voices = {
-      az: "az-AZ-BanuNeural",      // Azərbaycan qadın səsi
+      az: "az-AZ-BanuNeural",      // Azərbaycan qadın səsi (ən keyfiyyətli)
       ru: "ru-RU-SvetlanaNeural",  // Rus qadın səsi
-      en: "en-US-JennyNeural"      // İngilis qadın səsi
+      en: "en-US-JennyNeural"      // İngilis qadın səsi (ən təbii)
     };
 
     const voiceName = voices[language] || voices.az;
@@ -595,28 +595,26 @@ async function textToSpeechAudio(text, language = "az") {
     speechConfig.speechSynthesisVoiceName = voiceName;
     speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio48Khz192KBitRateMonoMp3;
 
-    // Təbii pauzalar üçün mətni cümlələrə böl
+    // Mətni cümlələrə böl və minimal pauza əlavə et
     const sentences = processedText
       .split(/(?<=[.!?…])\s+/)
       .filter(s => s.trim().length > 0);
 
-    // Hər cümlə arasına təbii pauza əlavə et
+    // Qısa, təbii pauzalar
     const sentencesWithPauses = sentences.map((sentence, i) => {
       const isLast = i === sentences.length - 1;
-      // Sual və nida işarəsindən sonra daha uzun pauza
-      const pauseTime = /[!?]$/.test(sentence.trim()) ? '400ms' : '250ms';
-      // Vergül olan yerlərdə qısa pauza
-      const withCommaPause = sentence.replace(/,\s*/g, ', <break time="120ms"/> ');
-      return `<break time="80ms"/>${withCommaPause}${isLast ? '' : `<break time="${pauseTime}"/>`}`;
+      const pauseTime = /[!?]$/.test(sentence.trim()) ? '250ms' : '150ms';
+      const withCommaPause = sentence.replace(/,\s*/g, ', <break time="80ms"/> ');
+      return `${withCommaPause}${isLast ? '' : `<break time="${pauseTime}"/>`}`;
     }).join('\n');
 
-    // SSML ilə daha təbii danışıq — express-as stil, dinamik prosody
+    // SSML ilə ən təbii danışıq — express-as "friendly" stili
     const ssml = `
 <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
        xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${language}">
   <voice name="${voiceName}">
-    <mstts:express-as style="chat" styledegree="1.5">
-      <prosody rate="-8%" pitch="-2%" volume="+0%">
+    <mstts:express-as style="friendly" styledegree="2.0">
+      <prosody rate="+15%" pitch="+2%">
         ${sentencesWithPauses}
       </prosody>
     </mstts:express-as>
