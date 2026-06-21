@@ -568,11 +568,11 @@ async function textToSpeechAudio(text, language = "az") {
   }
 
   try {
-    // Azure Neural səsləri — ən təbii səslənən variantlar
+    // Azure Neural səsləri — kişi səsləri
     const voices = {
-      az: "az-AZ-BanuNeural",      // Azərbaycan qadın səsi (ən keyfiyyətli)
-      ru: "ru-RU-SvetlanaNeural",  // Rus qadın səsi
-      en: "en-US-JennyNeural"      // İngilis qadın səsi (ən təbii)
+      az: "az-AZ-BabekNeural",     // Azərbaycan kişi səsi
+      ru: "ru-RU-DmitryNeural",    // Rus kişi səsi
+      en: "en-US-GuyNeural"        // İngilis kişi səsi
     };
 
     const voiceName = voices[language] || voices.az;
