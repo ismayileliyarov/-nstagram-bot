@@ -26,9 +26,9 @@ function detectLanguage(text) {
 
 // Follow‑up block messages per language
 const FOLLOWUP_BLOCK_MSG = {
-  az: "Salam, məlumatları incələdik və gördük ki, sizinlə öncədən əlaqə keçmişik. Geri dönüş etdiyiniz üçün təşəkkürlər. Sizinlə maraqlanmaq üçün sizi canlı dəstək komandamıza yönəldirəm. Zəhmət olmasa gözləyin.",
-  ru: "Привет, мы просмотрели информацию и видим, что уже связывались с вами ранее. Спасибо за ваш отклик. Перенаправляю вас к нашей команде живой поддержки. Пожалуйста, подождите.",
-  en: "Hello, we have reviewed the information and see that we have previously contacted you. Thank you for getting back. I am directing you to our live support team. Please wait."
+  az: "Salam, məlumatları incələdim və sizə tərəfimizdən mesaj göndərildiyini təyin etdim. Zəhmət olmasa bir qədər gözləyin, sizi sizinlə maraqlanmaları üçün dəstək xidmətinə yönləndirirəm.",
+  ru: "Здравствуйте, я проверил информацию и определил, что вам уже было отправлено сообщение с нашей стороны. Пожалуйста, подождите немного, я направляю вас в службу поддержки для дальнейшего общения.",
+  en: "Hello, I have reviewed the information and determined that a message has already been sent to you from our side. Please wait a moment, I am directing you to the support service for further assistance."
 };
 
 // Track users we have previously contacted
@@ -234,21 +234,14 @@ function getUser(userId) {
   }
   const u = users.get(id);
 
-  // 30 dəqiqə sessiya timeout – blocked flag-ı da sıfırla
-  if (Date.now() - u.lastActive > TIMEOUT_30MIN) {
+  // 30 dəqiqə sessiya timeout – amma bloklanmış istifadəçilərə toxunma
+  if (!u.blocked && Date.now() - u.lastActive > TIMEOUT_30MIN) {
     u.state = "main";
     u.history = [];
-    u.blocked = false;
-    u.blockedSince = null;
   }
 
-  // Bloklama müddəti 30 dəqiqədirsə, avtomatik aç
-  if (u.blocked && u.blockedSince && (Date.now() - u.blockedSince > TIMEOUT_30MIN)) {
-    u.blocked = false;
-    u.blockedSince = null;
-    u.state = "main";
-    console.log(`🔓 İstifadəçi ${id} blokdan avtomatik açıldı`);
-  }
+  // Bloklanmış istifadəçilər YALNIZ admin tərəfindən açıla bilər
+  // Avtomatik blok açılması LƏĞV EDİLİB
 
   u.lastActive = Date.now();
   u.messageCount++;
@@ -1235,8 +1228,6 @@ app.post("/webhook", async (req, res) => {
           setState(c.from?.id || c.id, { language: commentLang });
           await commentReply(c.id, "Şərhiniz DM-də cavablandırıldı ✔️");
           await sendDM(c.id, MENU[commentLang].main);
-          // Mark that we have previously contacted this user
-          priorContact.add(c.from?.id || c.id);
 
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } finally {
@@ -1254,9 +1245,20 @@ app.post("/webhook", async (req, res) => {
         // Səsli mesaj yoxlaması
         const audioAttachment = attachments.find(a => a.type === 'audio' || a.type === 'voice');
 
-        if (!text && !audioAttachment) continue;
         if (!senderId || !msgId) continue;
-        if (senderId === myId) continue;
+
+        // Əgər mesajı BİZ (hesab sahibi/insan) göndərmişiksə →
+        // alıcını priorContact-a əlavə et (əl ilə göndərilmiş DM)
+        if (senderId === myId) {
+          const recipientId = msg.recipient?.id;
+          if (recipientId && !priorContact.has(recipientId)) {
+            priorContact.add(recipientId);
+            console.log(`📌 İnsan tərəfindən DM göndərildi → ${recipientId} priorContact-a əlavə edildi`);
+          }
+          continue;
+        }
+
+        if (!text && !audioAttachment) continue;
         if (isLocked(msgId) || isProcessed(msgId)) {
           console.log(`⏭️ DM keçildi: ${msgId}`);
           continue;
@@ -1301,7 +1303,16 @@ app.post("/webhook", async (req, res) => {
             await replyDM(senderId, blockMsg);
             setState(senderId, { blocked: true, blockedSince: Date.now() });
             pendingBlock.add(senderId);
-            console.log(`🔒 İstifadəçi ${senderId} bloklandı (təkrar əlaqə).`);
+            logEvent(senderId, "followup_blocked", text || "");
+
+            // Telegram-a bildiriş göndər
+            await notifyTelegram(
+              senderId,
+              `⚠️ TƏKRAR ƏLAQƏ — Bloklandı\n\n💬 Mesajı: ${String(text || "").slice(0, 200)}\n\n🔒 Admin açana qədər cavab verilməyəcək.\n📌 /admin panelindən bloku aça bilərsiniz.`,
+              username
+            );
+
+            console.log(`🔒 İstifadəçi ${senderId} bloklandı (təkrar əlaqə). Telegram bildirişi göndərildi.`);
             continue; // skip further processing
           }
 
@@ -1334,8 +1345,6 @@ app.post("/webhook", async (req, res) => {
                 await replyDM(senderId, reply);
                 console.log("✅ Cavablandı");
               }
-              // Mark this user as having been contacted before
-              priorContact.add(senderId);
             } else {
               console.log("⚠️ Cavab alınmadı, fallback göndərilir");
               const fallbackMsg = FALLBACK_MESSAGES[getUser(senderId).language] || FALLBACK_MESSAGES.az;
