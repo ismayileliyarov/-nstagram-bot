@@ -7,6 +7,35 @@ const Groq = require("groq-sdk");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 
 const app = express();
+
+// =============================
+// Language detection & follow‑up handling
+// =============================
+
+// Simple language detection based on characters
+function detectLanguage(text) {
+  const t = text || "";
+  // Cyrillic → Russian
+  if (/[Ѐ-ӿ]/.test(t)) return "ru";
+  // Azerbaijani specific characters → Azerbaijani
+  if (/[əğçıöşİ]/i.test(t)) return "az";
+  // Default to English if only basic ASCII
+  if (/^[\x00-\x7F]*$/.test(t)) return "en";
+  return "az"; // fallback
+}
+
+// Follow‑up block messages per language
+const FOLLOWUP_BLOCK_MSG = {
+  az: "Salam, məlumatları incələdik və gördük ki, sizinlə öncədən əlaqə keçmişik. Geri dönüş etdiyiniz üçün təşəkkürlər. Sizinlə maraqlanmaq üçün sizi canlı dəstək komandamıza yönəldirəm. Zəhmət olmasa gözləyin.",
+  ru: "Привет, мы просмотрели информацию и видим, что уже связывались с вами ранее. Спасибо за ваш отклик. Перенаправляю вас к нашей команде живой поддержки. Пожалуйста, подождите.",
+  en: "Hello, we have reviewed the information and see that we have previously contacted you. Thank you for getting back. I am directing you to our live support team. Please wait."
+};
+
+// Track users we have previously contacted
+const priorContact = new Set();
+// Users blocked pending admin unblock
+const pendingBlock = new Set();
+
 app.use(express.json());
 app.use(session({
   secret: process.env.SESSION_SECRET || "01cs_session_2024",
@@ -1201,8 +1230,14 @@ app.post("/webhook", async (req, res) => {
           console.log(`📩 Şərh: @${fromUser}`);
           logEvent(c.from?.id || c.id, "comment", c.text || "");
 
+          const commentLang = detectLanguage(c.text || "");
+          // Store language for this user (use Instagram user id as key)
+          setState(c.from?.id || c.id, { language: commentLang });
           await commentReply(c.id, "Şərhiniz DM-də cavablandırıldı ✔️");
-          await sendDM(c.id, MENU.az.main);
+          await sendDM(c.id, MENU[commentLang].main);
+          // Mark that we have previously contacted this user
+          priorContact.add(c.from?.id || c.id);
+
           console.log(`✉️ DM göndərildi → @${fromUser}`);
         } finally {
           unlock(c.id);
@@ -1256,6 +1291,20 @@ app.post("/webhook", async (req, res) => {
             logEvent(senderId, "dm", text);
           }
 
+          // Detect language and set for user
+          const detectedLang = detectLanguage(text || "");
+          setState(senderId, { language: detectedLang });
+
+          // If we have previously contacted this user, send block message and block them
+          if (priorContact.has(senderId)) {
+            const blockMsg = FOLLOWUP_BLOCK_MSG[detectedLang] || FOLLOWUP_BLOCK_MSG.az;
+            await replyDM(senderId, blockMsg);
+            setState(senderId, { blocked: true, blockedSince: Date.now() });
+            pendingBlock.add(senderId);
+            console.log(`🔒 İstifadəçi ${senderId} bloklandı (təkrar əlaqə).`);
+            continue; // skip further processing
+          }
+
           // Mətn varsa (yazılı və ya transcribe edilmiş), cavab ver
           if (text) {
             const reply = await getReply(senderId, text, username);
@@ -1285,12 +1334,15 @@ app.post("/webhook", async (req, res) => {
                 await replyDM(senderId, reply);
                 console.log("✅ Cavablandı");
               }
+              // Mark this user as having been contacted before
+              priorContact.add(senderId);
             } else {
               console.log("⚠️ Cavab alınmadı, fallback göndərilir");
               const fallbackMsg = FALLBACK_MESSAGES[getUser(senderId).language] || FALLBACK_MESSAGES.az;
               await replyDM(senderId, fallbackMsg);
             }
           }
+
         } finally {
           unlock(msgId);
         }
