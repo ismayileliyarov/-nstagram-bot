@@ -31,10 +31,7 @@ const FOLLOWUP_BLOCK_MSG = {
   en: "Hello, I have reviewed the information and determined that a message has already been sent to you from our side. Please wait a moment, I am directing you to the support service for further assistance."
 };
 
-// Track users we have previously contacted
-const priorContact = new Set();
-// Users blocked pending admin unblock
-const pendingBlock = new Set();
+// Track users states (managed inside users map)
 
 app.use(express.json());
 app.use(session({
@@ -227,8 +224,11 @@ function getUser(userId) {
       lastService: null,
       blocked: false,
       blockedSince: null,
+      proactive: false,
+      byComment: false,
       lastActive: Date.now(),
       messageCount: 0,
+      hasSentMessage: false, // İstifadəçi bizə mesaj göndəribmi?
       history: []
     });
   }
@@ -695,8 +695,7 @@ const LIVE_WORDS = [
   "canlı dəstəyə yönləndir", "canlı dəstəyə yonlendir",
   "canli destege yonlendir",
   "живая поддержка", "оператор", "живой чат",
-  "live support", "live chat", "human support", "talk to human",
-  "dəstək", "destek", "yardım", "yardim", "kömək", "komek"
+  "live support", "live chat", "human support", "talk to human"
 ];
 
 function isLiveRequest(text) {
@@ -1030,7 +1029,7 @@ async function getReply(userId, text, username = "") {
     await notifyTelegram(userId, t, username);
     setState(userId, { blocked: true, blockedSince: Date.now() });
     console.log(`🔒 İstifadəçi ${userId} canlı dəstək üçün bloklandı`);
-    return m.live;
+    return null; // Cavab verməsin
   }
 
   // Ana menyuya qayıt
@@ -1224,8 +1223,8 @@ app.post("/webhook", async (req, res) => {
           logEvent(c.from?.id || c.id, "comment", c.text || "");
 
           const commentLang = detectLanguage(c.text || "");
-          // Store language for this user (use Instagram user id as key)
-          setState(c.from?.id || c.id, { language: commentLang });
+          const commenterId = c.from?.id || c.id;
+          setState(commenterId, { language: commentLang, byComment: true });
           await commentReply(c.id, "Şərhiniz DM-də cavablandırıldı ✔️");
           await sendDM(c.id, MENU[commentLang].main);
 
@@ -1242,18 +1241,23 @@ app.post("/webhook", async (req, res) => {
         const msgId = msg.message?.mid;
         const attachments = msg.message?.attachments || [];
 
-        // Səsli mesaj yoxlaması
         const audioAttachment = attachments.find(a => a.type === 'audio' || a.type === 'voice');
 
         if (!senderId || !msgId) continue;
 
         // Əgər mesajı BİZ (hesab sahibi/insan) göndərmişiksə →
-        // alıcını priorContact-a əlavə et (əl ilə göndərilmiş DM)
+        // alıcını proaktiv olaraq qeyd et
         if (senderId === myId) {
           const recipientId = msg.recipient?.id;
-          if (recipientId && !priorContact.has(recipientId)) {
-            priorContact.add(recipientId);
-            console.log(`📌 İnsan tərəfindən DM göndərildi → ${recipientId} priorContact-a əlavə edildi`);
+          if (recipientId) {
+            // getUser çağırmadan birbaşa users map-dən oxu (messageCount artırmasın)
+            const u = users.get(String(recipientId));
+            // İstifadəçi bizə HEÇ mesaj göndərməyibsə → proaktiv qeyd et
+            if (!u || (!u.hasSentMessage && !u.byComment && !u.blocked)) {
+              const ru = getUser(recipientId);
+              ru.proactive = true;
+              console.log(`📌 Proaktiv mesaj təyin edildi → ${recipientId}`);
+            }
           }
           continue;
         }
@@ -1267,8 +1271,16 @@ app.post("/webhook", async (req, res) => {
         lock(msgId);
         try {
           const username = msg.sender?.username || "";
+          const u = getUser(senderId);
+          // İstifadəçinin bizə mesaj göndərdiyi qeyd edilir
+          u.hasSentMessage = true;
 
-          // Səsli mesaj varsa, transcribe et
+          // Əgər istifadəçi bloklanıbsa, heç bir cavab vermə
+          if (u.blocked) {
+            console.log(`🚫 İstifadəçi ${senderId} bloklanıb, cavab verilmir`);
+            continue;
+          }
+
           if (audioAttachment && !text) {
             console.log(`🎤 Səsli mesaj @${username}`);
             const audioUrl = audioAttachment.payload?.url;
@@ -1285,7 +1297,6 @@ app.post("/webhook", async (req, res) => {
               logEvent(senderId, "voice_message", text);
               console.log(`✅ Transcribe edildi: "${text.slice(0, 60)}"`);
 
-              // Səsli mesaj üçün AI-ya xüsusi prompt əlavə et
               addHistory(senderId, "system", "[SƏSLİ MESAJ CAVABI QAYDALARI: Qısa, danışıq dilində yaz. Emoji, URL, siyahı YAZMA. Rəqəmləri sözlə yaz. Maksimum 3-4 cümlə.]");
             }
           } else if (text) {
@@ -1293,61 +1304,59 @@ app.post("/webhook", async (req, res) => {
             logEvent(senderId, "dm", text);
           }
 
-          // Detect language and set for user
           const detectedLang = detectLanguage(text || "");
           setState(senderId, { language: detectedLang });
 
-          // If we have previously contacted this user, send block message and block them
-          if (priorContact.has(senderId)) {
+          // Proaktiv mesaj cavabı yoxlaması
+          if (u.proactive) {
             const blockMsg = FOLLOWUP_BLOCK_MSG[detectedLang] || FOLLOWUP_BLOCK_MSG.az;
             await replyDM(senderId, blockMsg);
-            setState(senderId, { blocked: true, blockedSince: Date.now() });
-            pendingBlock.add(senderId);
-            logEvent(senderId, "followup_blocked", text || "");
+            setState(senderId, { blocked: true, blockedSince: Date.now(), proactive: false });
+            logEvent(senderId, "proactive_blocked", text || "");
 
-            // Telegram-a bildiriş göndər
             await notifyTelegram(
               senderId,
-              `⚠️ TƏKRAR ƏLAQƏ — Bloklandı\n\n💬 Mesajı: ${String(text || "").slice(0, 200)}\n\n🔒 Admin açana qədər cavab verilməyəcək.\n📌 /admin panelindən bloku aça bilərsiniz.`,
+              `⚠️ PROAKTİV MESAJ CAVABI — Bloklandı\n\n👤 @${username || "istifadəçi"}\n🆔 ${String(senderId).slice(-8)}\n💬 Mesajı: ${String(text || "").slice(0, 200)}\n\n🔒 Admin açana qədər cavab verilməyəcək.`,
               username
             );
 
-            console.log(`🔒 İstifadəçi ${senderId} bloklandı (təkrar əlaqə). Telegram bildirişi göndərildi.`);
-            continue; // skip further processing
+            console.log(`🔒 İstifadəçi ${senderId} proaktiv mesaj cavabına görə bloklandı. Telegram bildirişi göndərildi.`);
+            continue;
           }
 
-          // Mətn varsa (yazılı və ya transcribe edilmiş), cavab ver
           if (text) {
             const reply = await getReply(senderId, text, username);
+
+            // Əgər getReply daxilində canlı dəstək istənibsə və istifadəçi bloklanıbsa, heç bir cavab vermə
+            if (u.blocked) {
+              console.log(`🚫 İstifadəçi ${senderId} canlı dəstək istəyinə görə bloklandı, cavab verilmir.`);
+              continue;
+            }
+
             if (reply) {
-              // Əgər istifadəçi səsli mesaj göndəribsə və TTS aktivdirsə, səslə cavab ver
               if (audioAttachment && CONFIG.ENABLE_VOICE_REPLIES && CONFIG.AZURE_SPEECH_KEY) {
                 try {
-                  const userLang = getUser(senderId).language || "az";
+                  const userLang = u.language || "az";
                   const audioBuffer = await textToSpeechAudio(reply, userLang);
 
                   if (audioBuffer) {
                     await replyAudioDM(senderId, audioBuffer);
                     console.log("✅ Səsli cavab göndərildi");
                   } else {
-                    // Audio yaradıla bilməzsə, mətn göndər
                     await replyDM(senderId, reply);
                     console.log("⚠️ Audio yaradılmadı, mətn göndərildi");
                   }
                 } catch (audioError) {
-                  // Audio göndərmə xətası olarsa, mətn göndər
                   console.log("⚠️ Audio göndərmə xətası, mətnlə davam edilir");
                   await replyDM(senderId, reply);
-                  console.log("✅ Fallback: Mətn cavabı göndərildi");
                 }
               } else {
-                // Normal mətn cavabı
                 await replyDM(senderId, reply);
                 console.log("✅ Cavablandı");
               }
             } else {
               console.log("⚠️ Cavab alınmadı, fallback göndərilir");
-              const fallbackMsg = FALLBACK_MESSAGES[getUser(senderId).language] || FALLBACK_MESSAGES.az;
+              const fallbackMsg = FALLBACK_MESSAGES[u.language] || FALLBACK_MESSAGES.az;
               await replyDM(senderId, fallbackMsg);
             }
           }
@@ -1447,6 +1456,23 @@ app.get("/admin", adminAuth, (req, res) => {
   .badge.live_support{background:#4a1e1e;color:#f74f4f}
   .btn{background:#4f8ef7;color:#fff;padding:5px 10px;border-radius:6px;text-decoration:none;font-size:11px;white-space:nowrap}
   .logout{background:#2a2a3e;color:#aaa;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px}
+  textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#0a0a1a;color:#fff;font-size:14px;resize:vertical;min-height:80px;font-family:inherit}
+  .form-group{margin-bottom:12px}
+  .form-group label{display:block;color:#aaa;font-size:12px;margin-bottom:6px}
+  .form-group select,.form-group input[type="text"]{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#0a0a1a;color:#fff;font-size:14px}
+  .btn-send{background:#4fc87f;color:#fff;padding:10px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;width:100%}
+  .btn-send:hover{background:#3db76a}
+  .btn-danger{background:#f74f4f}
+  .btn-danger:hover{background:#d43d3d}
+  .alert{padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px}
+  .alert-success{background:#1e4a2e;color:#4fc87f;border:1px solid #2e5a3e}
+  .alert-error{background:#4a1e1e;color:#f74f4f;border:1px solid #5a2e2e}
+  .alert-info{background:#1e3a5f;color:#4f8ef7;border:1px solid #2e4a6f}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{padding:8px 16px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600}
+  .tab.active{background:#4f8ef7;color:#fff}
+  .tab:not(.active){background:#2a2a3e;color:#aaa}
+  .tab:not(.active):hover{background:#3a3a4e}
 </style></head>
 <body>
 <h1>🤖 01CS Bot Admin <a href="/admin/logout" class="logout">Çıxış</a></h1>
@@ -1487,7 +1513,7 @@ app.get("/admin", adminAuth, (req, res) => {
       <td>${u.language}</td>
       <td>${u.messageCount}</td>
       <td>${u.blocked ? "🔴 Canlı dəstəkdə" : "🟢 Aktiv"}</td>
-      <td>${u.blocked ? `<a href="/admin/unblock/${id}" class="btn">Bitir</a>` : ""}</td>
+      <td>${u.blocked ? `<a href="/admin/unblock/${id}" class="btn">Blokdan Çıx</a>` : `<a href="/admin/kill/${id}" class="btn btn-danger">Bitir</a>`}</td>
     </tr>`).join("")}
   </table>
 </div>
@@ -1495,17 +1521,87 @@ app.get("/admin", adminAuth, (req, res) => {
 });
 
 app.get("/admin/unblock/:id", adminAuth, (req, res) => {
-  const u = users.get(req.params.id);
-  if (u) { u.blocked = false; u.blockedSince = null; u.state = "main"; }
+  const uid = req.params.id;
+  if (users.has(uid)) {
+    const u = users.get(uid);
+    u.blocked = false;
+    u.blockedSince = null;
+    u.proactive = false;
+    console.log(`🔓 İstifadəçi ${uid} admin tərəfindən blokdan çıxarıldı`);
+  }
   res.redirect("/admin");
 });
 
-// ════════════════════════════════════════════════════
-// SERVER
-// ════════════════════════════════════════════════════
-app.get("/", (req, res) => res.send("01CS Instagram Bot ✅ işləyir"));
+app.get("/admin/kill/:id", adminAuth, (req, res) => {
+  const uid = req.params.id;
+  // Remove user session data
+  users.delete(uid);
+  // Optionally clear any lock/processed entries – they will expire automatically
+  res.redirect("/admin");
+});
 
-// Audio fayllara müvəqqəti xidmət (Instagram üçün)
+
+// ════════════════════════════════════════════════════
+// CAMPAIGN PANEL
+// ════════════════════════════════════════════════════
+app.get("/admin/campaign", adminAuth, (req, res) => {
+  const formHTML = `<!DOCTYPE html>
+  <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kampaniya — 01CS Bot</title>
+  <style>
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#0d0d1a;color:#e0e0e0;padding:16px}
+    .tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tab{padding:8px 16px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600}
+    .tab.active{background:#4f8ef7;color:#fff}
+    .tab:not(.active){background:#2a2a3e;color:#aaa}
+    textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#0a0a1a;color:#fff;font-size:14px;resize:vertical;min-height:120px;font-family:inherit}
+    .btn-send{background:#4fc87f;color:#fff;padding:10px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;width:100%}
+    .btn-send:hover{background:#3db76a}
+    .alert{padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px}
+    .alert-success{background:#1e4a2e;color:#4fc87f;border:1px solid #2e5a3e}
+    .alert-error{background:#4a1e1e;color:#f74f4f;border:1px solid #5a2e2e}
+  </style></head>
+  <body>
+    <h1>📢 Kampaniya Göndər</h1>
+    <div class="tabs">
+      <a href="/admin" class="tab">📊 Panel</a>
+      <a href="/admin/campaign" class="tab active">📢 Kampaniya</a>
+    </div>
+    <form method="POST" action="/admin/campaign/send">
+      <textarea name="message" placeholder="İstifadəçilərə göndəriləcək mesaj..." required></textarea>
+      <br/><br/>
+      <button type="submit" class="btn-send">Göndər</button>
+    </form>
+    %ALERT%
+  </body></html>`;
+  res.send(formHTML.replace("%ALERT%", ""));
+});
+
+app.post("/admin/campaign/send", adminAuth, express.urlencoded({ extended: false }), async (req, res) => {
+  const msg = req.body.message?.trim();
+  if (!msg) {
+    return res.send("<script>alert('Mesaj boş ola bilməz!');history.back();</script>");
+  }
+  let success = 0, fail = 0;
+  for (const uid of users.keys()) {
+    try {
+      await replyDM(uid, msg);
+      success++;
+    } catch (e) {
+      fail++;
+      console.error(`Kampaniya DM xətası ${uid}:`, e.message);
+    }
+  }
+  const alert = `<div class="alert alert-success">Kampaniya tamamlandı – ${success} istifadəçiyə göndərildi${fail ? `, ${fail} uğursuz oldu` : ""}.</div>`;
+  const formHTML = `<!DOCTYPE html>
+  <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kampaniya — 01CS Bot</title></head>
+  <body>${alert}<a href="/admin/campaign">↩️ Geri</a></body></html>`;
+  res.send(formHTML);
+});
+
+// ──────────────────────────────────────────────────
+// AUDIO STATIC SERVING (səsli cavablar üçün /tmp-audio)
+// ──────────────────────────────────────────────────
 app.use("/tmp-audio", express.static("/tmp", {
   maxAge: '30s', // 30 saniyə sonra cache silinir
   setHeaders: (res) => {
